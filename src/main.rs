@@ -21,6 +21,7 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 static WATCH_STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+#[cfg(unix)]
 extern "C" fn watch_signal_handler(_: libc::c_int) {
     WATCH_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
 }
