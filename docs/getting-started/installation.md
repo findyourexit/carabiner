@@ -1,6 +1,12 @@
 # Installation
 
-Carabiner is a Rust command line application. Install the published crate with Cargo.
+## Homebrew (macOS)
+
+The `findyourexit/tap` Homebrew tap provides a prebuilt binary for macOS:
+
+```bash
+brew install findyourexit/tap/carabiner
+```
 
 ## Install from crates.io
 

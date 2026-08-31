@@ -27,6 +27,15 @@ carabiner --version
 </details>
 
 <details>
+<summary><strong>Homebrew (macOS)</strong></summary>
+
+```console
+brew install findyourexit/tap/carabiner
+```
+
+</details>
+
+<details>
 <summary><strong>Build from source</strong></summary>
 
 ```console
