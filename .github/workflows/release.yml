@@ -174,17 +174,17 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           DATE=$(date -u +%Y-%m-%d)
-          # Only insert the versioned header when [Unreleased] contains entries.
-          # An empty [Unreleased] section means the content was already promoted
-          # (e.g. pre-written directly under a versioned header for the initial release).
+          # Count unreleased entries from the tagged commit before switching branches.
           UNRELEASED=$(awk '/^## \[Unreleased\]/{flag=1; next} /^## \[/{flag=0} flag' CHANGELOG.md | grep -c '\S' || true)
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Switch to main before modifying anything so there is no unstaged conflict.
+          git fetch origin main
+          git checkout main
+          # Apply the promotion to main's copy of the changelog.
           if [ "$UNRELEASED" -gt 0 ]; then
             sed -i "s/^## \[Unreleased\]/## [Unreleased]\n\n## [${VERSION}] - ${DATE}/" CHANGELOG.md
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
-          git checkout main
           git add CHANGELOG.md
           git diff --cached --quiet || git commit -m "chore: promote changelog for ${GITHUB_REF_NAME}"
           git push origin main
