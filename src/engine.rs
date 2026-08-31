@@ -1341,6 +1341,8 @@ fn write_generated_file(
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
     }
+    #[cfg(not(unix))]
+    let _ = feature;
     Ok(changed)
 }
 
