@@ -1,0 +1,45 @@
+[package]
+name = "carabiner"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+description = "Unified AI rules management CLI"
+license = "MIT"
+repository = "https://github.com/findyourexit/carabiner"
+homepage = "https://github.com/findyourexit/carabiner"
+documentation = "https://docs.rs/carabiner"
+readme = "README.md"
+keywords = ["ai", "rules", "agents", "codegen", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = [
+  ".cargo/",
+  ".editorconfig",
+  ".gitattributes",
+  ".gitmessage",
+  ".github/",
+  "assets/",
+  "schemas/",
+  "rust-toolchain.toml",
+  "clippy.toml",
+  "rustfmt.toml",
+  "deny.toml",
+]
+
+[lib]
+name = "carabiner"
+path = "src/lib.rs"
+
+[[bin]]
+name = "carabiner"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["clock"] }
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+serde_yaml = "0.9"
+toml = "0.8"
+walkdir = "2.5"
+libc = "0.2"

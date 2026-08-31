@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/findyourexit/carabiner/releases/latest/download/mcp-schema.json",
+  "title": "Carabiner MCP configuration",
+  "description": "Schema for .carabiner/mcp.jsonc — the canonical MCP server list",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URL of the JSON Schema for this file."
+    },
+    "mcpServers": {
+      "type": "object",
+      "description": "Map of MCP server definitions keyed by server name.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["stdio", "http", "sse"],
+            "description": "Server transport type."
+          },
+          "command": {
+            "type": "string",
+            "description": "Executable to run. Required for stdio servers."
+          },
+          "args": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Arguments passed to the command."
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "Environment variables set before launching the server."
+          },
+          "url": {
+            "type": "string",
+            "description": "Server URL. Required for http and sse servers."
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "HTTP headers sent with each request. Used by http and sse servers."
+          }
+        }
+      }
+    }
+  }
+}
