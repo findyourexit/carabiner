@@ -1,7 +1,7 @@
 use crate::model::{Feature, ALL_FEATURES};
 use std::collections::HashSet;
 
-pub const VERSION: &str = "0.1.0";
+pub const VERSION: &str = "0.1.1";
 pub const ALL_TOOL_TARGETS: [&str; 42] = [
     "agentsmd",
     "aiassistant",

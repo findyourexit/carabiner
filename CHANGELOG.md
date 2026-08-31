@@ -4,6 +4,12 @@ All notable Carabiner changes are documented here. The format follows [Keep a Ch
 
 ## [Unreleased]
 
+### Added
+
+- Homebrew installation via `brew tap findyourexit/tap && brew install carabiner`. Prebuilt binaries for macOS (Apple Silicon and Intel) are available on the tap.
+- Compatibility matrix in the README showing supported features per tool across all 42 targets.
+- Documentation website at [tomlarcher.com/carabiner](https://tomlarcher.com/carabiner/), built with Zensical and published automatically on push to `main`.
+
 ## [0.1.0] - 2026-08-31
 
 - Unified AI rules management CLI with support for generating and importing configuration for 42 AI coding tool targets.
