@@ -72,9 +72,72 @@ Carabiner operates on a canonical source directory and a project configuration f
 
 ## Supported Tools
 
-Carabiner generates and imports configuration for 42 AI coding tools:
+The tables below show which features each tool supports. A checkmark means the feature is supported in at least one scope (project or global). See the [Supported Tools reference](docs/reference/supported-tools.md) for the `--targets` value for each tool and full scope breakdowns.
 
-`agentsmd` `aiassistant` `amp` `antigravity-cli` `antigravity-ide` `antigravity-plugin` `augmentcode` `augmentcode-legacy` `claudecode` `claudecode-legacy` `claudecode-plugin` `cline` `codexcli` `copilot` `copilotcli` `cursor` `deepagents` `devin` `factorydroid` `goose` `grokcli` `hermesagent` `junie` `kilo` `kimi-code` `kiro` `kiro-cli` `kiro-ide` `musecode` `opencode` `pi` `qwencode` `reasonix` `replit` `roo` `rovodev` `takt` `vibe` `warp` `zed` `zoocode` `agentsskills`
+### AI Coding Tools
+
+| Tool | rules | ignore | mcp | commands | subagents | skills | hooks | permissions | checks |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Amp | ✅ | | ✅ | | | ✅ | ✅ | ✅ | ✅ |
+| AugmentCode | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Claude Code | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| Cline | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| Codex CLI | ✅ | | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| Cursor | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| DeepAgents | ✅ | | ✅ | | ✅ | ✅ | ✅ | | |
+| Devin Desktop | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| Factory Droid | ✅ | | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| GitHub Copilot | ✅ | | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| GitHub Copilot CLI | ✅ | | ✅ | | ✅ | ✅ | ✅ | ✅ | |
+| Google Antigravity CLI | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| Google Antigravity IDE | ✅ | | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| Goose | ✅ | | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| Grok CLI | ✅ | | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| Hermes Agent | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| JetBrains AI Assistant | ✅ | ✅ | ✅ | | | ✅ | | | |
+| JetBrains Junie | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| Kilo Code | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| Kimi Code | ✅ | | ✅ | | ✅ | ✅ | ✅ | ✅ | |
+| Kiro CLI | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| Kiro IDE | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| Meta Muse Code | ✅ | | | | | ✅ | | | |
+| OpenCode | ✅ | | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| Pi Coding Agent | ✅ | | | ✅ | | ✅ | ✅ | ✅ | |
+| Qwen Code | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| Reasonix | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+| Replit | ✅ | | | | | ✅ | | | |
+| Roo Code ⚠️ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | | | |
+| Rovo Dev | ✅ | | ✅ | ✅ | ✅ | ✅ | | ✅ | ✅ |
+| Takt | ✅ | | ✅ | ✅ | ✅ | ✅ | | ✅ | ✅ |
+| Vibe Code | ✅ | ✅ | ✅ | | ✅ | ✅ | ✅ | ✅ | |
+| Warp | ✅ | ✅ | ✅ | ✅ | | ✅ | | ✅ | |
+| Zed | ✅ | ✅ | ✅ | | | ✅ | | ✅ | |
+| Zoo Code | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | | ✅ | |
+
+### Legacy and Plugin Targets
+
+These targets are excluded from `--targets "*"`. Use them only by naming them explicitly.
+
+| Tool | rules | ignore | mcp | commands | subagents | skills | hooks | permissions | checks |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| AugmentCode (legacy) ⚠️ | ✅ | | | | | | | | |
+| Claude Code (legacy) ⚠️ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | | | |
+| Claude Code plugin | | | ✅ | ✅ | ✅ | ✅ | ✅ | | |
+| Google Antigravity plugin | ✅ | | ✅ | | ✅ | ✅ | ✅ | | |
+| Kiro ⚠️ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
+
+### Open Standards
+
+| Tool | rules | ignore | mcp | commands | subagents | skills | hooks | permissions | checks |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| AGENTS.md | ✅ | | | (s) | (s) | (s) | | | |
+| AgentsSkills | | | | | | ✅ | | | |
+
+**Notes:**
+- ⚠️ Deprecated. Roo Code is end-of-life; use `zoocode`. Kiro is a deprecated alias; use `kiro-cli` or `kiro-ide`. AugmentCode and Claude Code legacy targets use older configuration formats; use `augmentcode` and `claudecode`.
+- (s) Simulated — the feature is generated as instructions inside the root rule, not as native tool files.
+- The `ignore` feature is deprecated. Use `permissions` with `read` deny rules instead.
+- Some features are only available in one scope. A ✅ means supported in at least one of project scope or global scope.
 
 ## Commands
 
