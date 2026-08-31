@@ -1,0 +1,301 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: carabiner
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            cross: false
+            archive: tar.gz
+          - target: x86_64-apple-darwin
+            runner: macos-14
+            cross: false
+            archive: tar.gz
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+            cross: false
+            archive: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04
+            cross: true
+            archive: tar.gz
+          - target: x86_64-pc-windows-msvc
+            runner: windows-2025
+            cross: false
+            archive: zip
+          - target: aarch64-pc-windows-msvc
+            runner: windows-2025
+            cross: true
+            archive: zip
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install stable toolchain
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add ${{ matrix.target }}
+
+      - name: Install Cross
+        if: matrix.cross
+        run: cargo install cross --locked
+
+      - name: Build
+        shell: bash
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --locked --target ${{ matrix.target }}
+          else
+            cargo build --release --locked --target ${{ matrix.target }}
+          fi
+
+      - name: Package (Unix)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          STAGING="${BINARY_NAME}-${VERSION}-${{ matrix.target }}"
+          ARCHIVE="${STAGING}.tar.gz"
+          mkdir "${STAGING}"
+          cp "target/${{ matrix.target }}/release/${BINARY_NAME}" "${STAGING}/"
+          cp LICENSE README.md "${STAGING}/"
+          tar czf "${ARCHIVE}" "${STAGING}"
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+
+      - name: Package (Windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $VERSION = "$env:GITHUB_REF_NAME" -replace '^v', ''
+          $STAGING = "$env:BINARY_NAME-$VERSION-${{ matrix.target }}"
+          $ARCHIVE = "$STAGING.zip"
+          New-Item -ItemType Directory -Path $STAGING
+          Copy-Item "target/${{ matrix.target }}/release/$env:BINARY_NAME.exe" "$STAGING/"
+          Copy-Item LICENSE, README.md "$STAGING/"
+          Compress-Archive -Path $STAGING -DestinationPath $ARCHIVE
+          echo "ARCHIVE=$ARCHIVE" >> $env:GITHUB_ENV
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: ${{ env.ARCHIVE }}
+
+      - name: Upload archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ matrix.target }}
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: true
+
+      - name: Extract changelog section
+        id: changelog
+        shell: bash
+        run: |
+          BODY=$(awk '/^## \[Unreleased\]/{flag=1; next} /^## \[/{flag=0} flag' CHANGELOG.md \
+            | sed -e '/./,$!d' -e :a -e '/^\n*$/{$d;N;ba}')
+          {
+            echo "body<<CHANGELOG_EOF"
+            echo "$BODY"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download all archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd artifacts
+          sha256sum carabiner-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Copy schema files
+        shell: bash
+        run: cp schemas/*.json artifacts/
+
+      - name: Create release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          body: ${{ steps.changelog.outputs.body }}
+          fail_on_unmatched_files: false
+          files: |
+            artifacts/carabiner-*
+            artifacts/SHA256SUMS
+            artifacts/*-schema.json
+
+      - name: Promote changelog
+        continue-on-error: true
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DATE=$(date -u +%Y-%m-%d)
+          # Only insert the versioned header when [Unreleased] contains entries.
+          # An empty [Unreleased] section means the content was already promoted
+          # (e.g. pre-written directly under a versioned header for the initial release).
+          UNRELEASED=$(awk '/^## \[Unreleased\]/{flag=1; next} /^## \[/{flag=0} flag' CHANGELOG.md | grep -c '\S' || true)
+          if [ "$UNRELEASED" -gt 0 ]; then
+            sed -i "s/^## \[Unreleased\]/## [Unreleased]\n\n## [${VERSION}] - ${DATE}/" CHANGELOG.md
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout main
+          git add CHANGELOG.md
+          git diff --cached --quiet || git commit -m "chore: promote changelog for ${GITHUB_REF_NAME}"
+          git push origin main
+
+  homebrew:
+    name: Update Homebrew formula
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: homebrew-tap
+    steps:
+      - name: Download macOS archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Compute SHA256 digests
+        id: sha
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          SHA_ARM64=$(sha256sum "artifacts/carabiner-${VERSION}-aarch64-apple-darwin.tar.gz" | awk '{print $1}')
+          SHA_X86_64=$(sha256sum "artifacts/carabiner-${VERSION}-x86_64-apple-darwin.tar.gz" | awk '{print $1}')
+          {
+            echo "version=${VERSION}"
+            echo "sha_arm64=${SHA_ARM64}"
+            echo "sha_x86_64=${SHA_X86_64}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check out Homebrew tap
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: findyourexit/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Write formula
+        shell: bash
+        run: |
+          VERSION="${{ steps.sha.outputs.version }}"
+          SHA_ARM64="${{ steps.sha.outputs.sha_arm64 }}"
+          SHA_X86_64="${{ steps.sha.outputs.sha_x86_64 }}"
+
+          mkdir -p homebrew-tap/Formula
+          cat > homebrew-tap/Formula/carabiner.rb << FORMULA
+          class Carabiner < Formula
+            desc "Unified AI rules management CLI"
+            homepage "https://github.com/findyourexit/carabiner"
+            license "MIT"
+            version "${VERSION}"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/findyourexit/carabiner/releases/download/v${VERSION}/carabiner-${VERSION}-aarch64-apple-darwin.tar.gz"
+                sha256 "${SHA_ARM64}"
+              else
+                url "https://github.com/findyourexit/carabiner/releases/download/v${VERSION}/carabiner-${VERSION}-x86_64-apple-darwin.tar.gz"
+                sha256 "${SHA_X86_64}"
+              end
+            end
+
+            def install
+              bin.install "carabiner"
+            end
+
+            test do
+              assert_match "carabiner", shell_output("#{bin}/carabiner --version")
+            end
+          end
+          FORMULA
+
+          sed -i 's/^          //' homebrew-tap/Formula/carabiner.rb
+
+      - name: Commit and push formula
+        shell: bash
+        env:
+          VERSION: ${{ steps.sha.outputs.version }}
+        run: |
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/carabiner.rb
+          git commit -m "chore(release): \`carabiner\` version \`${VERSION}\`"
+          git push
+
+  publish-crate:
+    name: Publish to crates.io
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: crates-io
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install stable toolchain
+        shell: bash
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Publish (skip if already on crates.io)
+        shell: bash
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NAME="carabiner"
+          if curl -sSf -A "${NAME}-release" "https://crates.io/api/v1/crates/${NAME}/${VERSION}" > /dev/null 2>&1; then
+            echo "::notice::${NAME} ${VERSION} is already on crates.io; skipping publish."
+          else
+            cargo publish -p "${NAME}" --locked
+          fi

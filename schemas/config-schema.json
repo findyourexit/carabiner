@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/findyourexit/carabiner/releases/latest/download/config-schema.json",
+  "title": "Carabiner configuration",
+  "description": "Schema for carabiner.jsonc and carabiner.local.jsonc",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URL of the JSON Schema for this file."
+    },
+    "targets": {
+      "description": "AI coding tools to generate configuration for. Use '*' to select every supported tool. In object form each key is a target name and each value is a feature list or feature options object — 'features' must then be omitted.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              { "type": "object" }
+            ]
+          }
+        }
+      ]
+    },
+    "features": {
+      "description": "Features to generate. Valid values: rules, commands, subagents, skills, mcp, hooks, permissions, checks, ignore. Omit when 'targets' is in object form.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["rules", "commands", "subagents", "skills", "mcp", "hooks", "permissions", "checks", "ignore", "*"]
+          }
+        }
+      ]
+    },
+    "outputRoots": {
+      "description": "Directories where generated files are written. Defaults to the project root ('.'). In object form each key is a target name and each value is a path or array of paths.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string" }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "inputRoot": {
+      "type": "string",
+      "description": "Deprecated. Parent directory of a canonical source tree. Carabiner appends '.carabiner/' to derive the source tree path. Use 'inputRoots' instead."
+    },
+    "inputRoots": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "Ordered list of canonical source tree directories. The first root must exist. Later roots are optional overlays and override earlier roots for matching relative paths."
+    },
+    "delete": {
+      "type": "boolean",
+      "default": false,
+      "description": "Delete orphaned generated files before writing. Files no longer produced by any source are removed."
+    },
+    "global": {
+      "type": "boolean",
+      "default": false,
+      "description": "Write to user-scope tool configuration paths instead of project-local paths."
+    },
+    "verbose": {
+      "type": "boolean",
+      "default": false,
+      "description": "Print detailed output during generation."
+    },
+    "silent": {
+      "type": "boolean",
+      "default": false,
+      "description": "Suppress all console output."
+    },
+    "simulateCommands": {
+      "type": "boolean",
+      "default": false,
+      "description": "Generate a simulated commands section in the root rule for tools that do not support native commands."
+    },
+    "simulateSubagents": {
+      "type": "boolean",
+      "default": false,
+      "description": "Generate a simulated subagents section in the root rule for tools that do not support native subagents."
+    },
+    "simulateSkills": {
+      "type": "boolean",
+      "default": false,
+      "description": "Generate a simulated skills section in the root rule for tools that do not support native skills."
+    },
+    "dryRun": {
+      "type": "boolean",
+      "default": false,
+      "description": "Preview changes without writing any files. Cannot be combined with 'check'."
+    },
+    "check": {
+      "type": "boolean",
+      "default": false,
+      "description": "Exit with a non-zero code if any file would change. Useful in CI pipelines. Cannot be combined with 'dryRun'."
+    },
+    "gitignoreTargetsOnly": {
+      "type": "boolean",
+      "default": true,
+      "description": "When running 'carabiner gitignore', add entries only for the tools listed in 'targets'. Set to false to add entries for every supported tool."
+    },
+    "gitignoreDestination": {
+      "type": "string",
+      "enum": ["gitignore", "gitattributes"],
+      "default": "gitignore",
+      "description": "File that 'carabiner gitignore' appends generated-path entries to."
+    },
+    "flattenedCommandNaming": {
+      "type": "string",
+      "enum": ["basename", "path"],
+      "default": "basename",
+      "description": "Naming convention for commands in flat output formats. 'basename' uses the file stem. 'path' uses the relative path with slashes replaced by hyphens."
+    },
+    "sources": {
+      "type": "array",
+      "description": "Declarative rule and skill sources installed via 'carabiner install'.",
+      "items": {
+        "type": "object",
+        "required": ["source"],
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "Repository or package source. For GitHub transport: 'owner/repo', 'owner/repo@ref', or 'owner/repo@ref:path'. For git transport: a full git URL. For npm transport: a package name."
+          },
+          "skills": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Skill names to install. Use ['*'] to install all skills."
+          },
+          "rules": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Rule file names to install. Use ['*'] to install all rules."
+          },
+          "transport": {
+            "type": "string",
+            "enum": ["github", "git", "npm"],
+            "default": "github",
+            "description": "Fetch transport. 'github' uses the GitHub REST API. 'git' works with any git remote. 'npm' fetches from an npm-compatible registry."
+          },
+          "ref": {
+            "type": "string",
+            "description": "Branch, tag, or commit SHA to fetch. Defaults to the remote default branch. For npm transport: an exact version or dist-tag."
+          },
+          "path": {
+            "type": "string",
+            "description": "Path to the skills directory within the repository. Defaults to 'skills'."
+          },
+          "rulesPath": {
+            "type": "string",
+            "description": "Path to the rules directory within the repository. Defaults to 'rules'."
+          },
+          "registry": {
+            "type": "string",
+            "description": "npm transport only. Base URL of the npm-compatible registry. Defaults to https://registry.npmjs.org."
+          },
+          "tokenEnv": {
+            "type": "string",
+            "description": "npm transport only. Environment variable holding the registry authentication token."
+          },
+          "agent": {
+            "type": "string",
+            "enum": ["github-copilot", "claude-code", "cursor", "codex", "gemini", "antigravity"],
+            "default": "github-copilot",
+            "description": "gh mode only. Target agent for skill installation."
+          },
+          "scope": {
+            "type": "string",
+            "enum": ["project", "user"],
+            "default": "project",
+            "description": "gh mode only. Installation scope."
+          }
+        }
+      }
+    }
+  }
+}

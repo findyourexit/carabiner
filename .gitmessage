@@ -1,0 +1,37 @@
+# <type>(<scope>): <subject>
+#
+# <body>
+#
+# <footer>
+
+# --- COMMIT END ---
+# Type can be:
+#  build    (changes that affect the build system or external dependencies)
+#  chore    (routine maintenance that does not change production behavior)
+#  ci       (changes to CI configuration files and scripts)
+#  docs     (changes to documentation)
+#  feat     (new user-facing feature)
+#  fix      (fix addressing a user bug)
+#  perf     (performance-related change)
+#  refactor (refactoring production code)
+#  revert   (reversion in code)
+#  style    (formatting changes - no production code logic changes)
+#  test     (adding or refactoring tests - no production code changes)
+#
+# Scope is optional and names a granular context for the changes.
+#
+# Common scopes for this project:
+# cli, config, deps, docs, engine, model, release, targets, util
+#
+# Subject: imperative mood, say what you did.
+# Body: go into detail about the changes.
+# Footer: related or resolved GitHub issue keys.
+#
+# Example:
+#   feat(engine): add hooks feature support for kiro-ide
+#
+#   Implemented pre- and post-tool-use hook generation for the
+#   kiro-ide target, mapping the canonical hooks.jsonc format to
+#   the .kiro/agents/default.json hooks array.
+#
+#   Closes #42

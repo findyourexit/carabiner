@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/findyourexit/carabiner/releases/latest/download/permissions-schema.json",
+  "title": "Carabiner permissions configuration",
+  "description": "Schema for .carabiner/permissions.jsonc — the canonical tool permission rules",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URL of the JSON Schema for this file."
+    },
+    "permission": {
+      "type": "object",
+      "description": "Shared permission rules applied across all configured tools. Keys are permission categories such as 'bash', 'read', 'edit', 'write', 'webfetch', 'websearch', 'mcp', or '*'. Values map glob patterns to an action.",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Map of glob patterns to permission actions.",
+            "additionalProperties": {
+              "type": "string",
+              "enum": ["allow", "deny", "ask"]
+            }
+          },
+          {
+            "type": "string",
+            "enum": ["allow", "deny", "ask"],
+            "description": "A single default action for this category with no pattern restriction."
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "permissionBlock": {
+      "type": "object",
+      "properties": {
+        "permission": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "enum": ["allow", "deny", "ask"]
+                }
+              },
+              {
+                "type": "string",
+                "enum": ["allow", "deny", "ask"]
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
