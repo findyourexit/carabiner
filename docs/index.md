@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/findyourexit/carabiner/main/assets/carabiner-header.png" alt="Carabiner — unified AI rules management CLI" />
+</p>
+
 # Carabiner
 
 Carabiner is a command-line tool for managing AI rules and configuration across AI coding tools. Author your rules, commands, permissions, MCP server definitions, hooks, and subagent profiles once in a canonical source directory, then generate the tool-specific files each assistant requires.
