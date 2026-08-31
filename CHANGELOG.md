@@ -4,6 +4,8 @@ All notable Carabiner changes are documented here. The format follows [Keep a Ch
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-31
+
 ### Added
 
 - Homebrew installation via `brew tap findyourexit/tap && brew install carabiner`. Prebuilt binaries for macOS (Apple Silicon and Intel) are available on the tap.
