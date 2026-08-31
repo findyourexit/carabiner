@@ -4,100 +4,111 @@ Install Carabiner with `cargo install carabiner --locked`.
 
 ## Quick Commands
 
-```bash
-# Initialize a project with an organized rules structure
-carabiner init
+=== "Scaffold & import"
+    ```bash
+    # Initialize a project with an organized rules structure
+    carabiner init
 
-# Import an existing configuration into .carabiner/rules/ by default
-carabiner import --targets claudecode --features rules,mcp,commands,subagents,skills,permissions
+    # Import an existing configuration into .carabiner/rules/ by default
+    carabiner import --targets claudecode --features rules,mcp,commands,subagents,skills,permissions
 
-# Import components from an existing plugin directory
-carabiner import --targets claudecode-plugin --features skills,hooks --output-root ./plugins/review-tools
+    # Import components from an existing plugin directory
+    carabiner import --targets claudecode-plugin --features skills,hooks --output-root ./plugins/review-tools
+    ```
 
-# Convert one tool's configuration to other tools without writing .carabiner/
-carabiner convert --from cursor --to copilot,claudecode
-carabiner convert --from cursor --to copilot,claudecode --features rules,mcp
+=== "Generate"
+    ```bash
+    # Generate every feature for every tool
+    carabiner generate --targets "*" --features "*"
 
-# Fetch configuration from a Git repository
-carabiner fetch owner/repo
-carabiner fetch owner/repo@v1.0.0 --features rules,commands
-carabiner fetch https://github.com/owner/repo --conflict skip
+    # Generate selected features for selected tools
+    carabiner generate --targets copilot,cursor,cline --features rules,mcp
+    carabiner generate --targets claudecode --features rules,subagents
 
-# Generate every feature for every tool
-carabiner generate --targets "*" --features "*"
+    # Generate components in an existing plugin directory
+    carabiner generate --targets antigravity-plugin --features rules,mcp,subagents,skills,hooks --output-roots ./plugins/review-tools
 
-# Generate selected features for selected tools
-carabiner generate --targets copilot,cursor,cline --features rules,mcp
-carabiner generate --targets claudecode --features rules,subagents
+    # Generate rules only
+    carabiner generate --targets "*" --features rules
 
-# Generate components in an existing plugin directory
-carabiner generate --targets antigravity-plugin --features rules,mcp,subagents,skills,hooks --output-roots ./plugins/review-tools
+    # Generate simulated commands and subagents
+    carabiner generate --targets copilot,cursor,codexcli --features commands,subagents --simulate-commands --simulate-subagents
 
-# Generate rules only
-carabiner generate --targets "*" --features rules
+    # Preview changes without writing files
+    carabiner generate --dry-run --targets claudecode --features rules
 
-# Generate simulated commands and subagents
-carabiner generate --targets copilot,cursor,codexcli --features commands,subagents --simulate-commands --simulate-subagents
+    # Check whether generated files are current for continuous integration
+    carabiner generate --check --targets "*" --features "*"
 
-# Preview changes without writing files
-carabiner generate --dry-run --targets claudecode --features rules
+    # Generate from a shared source tree without changing directories
+    carabiner generate --input-roots ~/.aiglobal/.carabiner --targets "*" --features rules
+    ```
 
-# Check whether generated files are current for continuous integration
-carabiner generate --check --targets "*" --features "*"
+=== "Sources"
+    ```bash
+    # Fetch configuration from a Git repository
+    carabiner fetch owner/repo
+    carabiner fetch owner/repo@v1.0.0 --features rules,commands
+    carabiner fetch https://github.com/owner/repo --conflict skip
 
-# Generate from a shared source tree without changing directories
-carabiner generate --input-roots ~/.aiglobal/.carabiner --targets "*" --features rules
+    # Install rules and skills declared in carabiner.jsonc
+    carabiner install
 
-# Install rules and skills declared in carabiner.jsonc
-carabiner install
+    # Add a source to carabiner.jsonc, update its lockfile, and install it
+    carabiner add anthropics/skills --skills skill-creator
 
-# Add a source to carabiner.jsonc, update its lockfile, and install it
-carabiner add anthropics/skills --skills skill-creator
+    # Add a rule source without selecting skills
+    carabiner add acme/ai-standards --rules testing-guidelines
 
-# Add a rule source without selecting skills
-carabiner add acme/ai-standards --rules testing-guidelines
+    # Resolve every source reference again and ignore the lockfile
+    carabiner install --update
 
-# Resolve every source reference again and ignore the lockfile
-carabiner install --update
+    # Require an up-to-date lockfile and fetch artifacts by locked reference
+    carabiner install --frozen
 
-# Require an up-to-date lockfile and fetch artifacts by locked reference
-carabiner install --frozen
+    # Install sources and then generate configuration
+    carabiner install && carabiner generate
+    ```
 
-# Install sources and then generate configuration
-carabiner install && carabiner generate
+=== "Utilities"
+    ```bash
+    # Convert one tool's configuration to other tools without writing .carabiner/
+    carabiner convert --from cursor --to copilot,claudecode
+    carabiner convert --from cursor --to copilot,claudecode --features rules,mcp
 
-# Add generated files to .gitignore
-carabiner gitignore
+    # Add generated files to .gitignore
+    carabiner gitignore
 
-# Add entries for selected tools
-carabiner gitignore --targets claudecode,copilot
+    # Add entries for selected tools
+    carabiner gitignore --targets claudecode,copilot
 
-# Add entries for selected features
-carabiner gitignore --targets copilot --features rules,commands
+    # Add entries for selected features
+    carabiner gitignore --targets copilot --features rules,commands
 
-# Diagnose configuration without writing files
-carabiner doctor
+    # Diagnose configuration without writing files
+    carabiner doctor
 
-# Treat warnings as failures
-carabiner doctor --strict
+    # Treat warnings as failures
+    carabiner doctor --strict
 
-# Print GitHub release notes for the Carabiner repository
-carabiner release-notes findyourexit/carabiner
+    # Print GitHub release notes for the Carabiner repository
+    carabiner release-notes findyourexit/carabiner
 
-# Print the five most recent releases
-carabiner release-notes findyourexit/carabiner --latest 5
+    # Print the five most recent releases
+    carabiner release-notes findyourexit/carabiner --latest 5
 
-# Update a Carabiner release. A repository is required.
-carabiner update --repository owner/carabiner
+    # Update a Carabiner release. A repository is required.
+    carabiner update --repository owner/carabiner
 
-# Check for updates without installing one
-carabiner update --repository owner/carabiner --check
+    # Check for updates without installing one
+    carabiner update --repository owner/carabiner --check
 
-# Update even when the installed version is already current
-carabiner update --repository owner/carabiner --force
-```
+    # Update even when the installed version is already current
+    carabiner update --repository owner/carabiner --force
+    ```
 
-> **Deprecated feature:** Existing projects can continue to use `ignore`, but new projects should use `permissions`. Any removal will be decided separately and will not happen before a future major release.
+??? warning "Deprecated"
+    Existing projects can continue to use `ignore`, but new projects should use `permissions`. Any removal will be decided separately and will not happen before a future major release.
 
 ## Generate Command
 
@@ -120,7 +131,8 @@ carabiner update --repository owner/carabiner --force
 | `--delete` | Delete existing generated files before writing. | From `carabiner.jsonc` |
 | `--watch, -w` | Keep running and regenerate when source files change. | `false` |
 
-> **Shared output directories:** Some targets intentionally write to the same directories, including `.agents/agents/`, `.agents/skills/`, and other cross-vendor roots. The orphan sweep runs only after every target and feature finishes writing. It never removes a path written during the current run, so one target cannot remove a sibling's fresh output. A synchronized tree produces no changes under `--check`. The sweep removes only files in generated directories that no `.carabiner/` source produces.
+!!! info "Shared output directories"
+    Some targets intentionally write to the same directories, including `.agents/agents/`, `.agents/skills/`, and other cross-vendor roots. The orphan sweep runs only after every target and feature finishes writing. It never removes a path written during the current run, so one target cannot remove a sibling's fresh output. A synchronized tree produces no changes under `--check`. The sweep removes only files in generated directories that no `.carabiner/` source produces.
 
 ### Examples
 
@@ -173,9 +185,11 @@ Because these files can be committed, `generate` does not create one solely for 
 
 Set `gitignoreDestination` to `"gitattributes"` at the root, tool, or tool and feature level to write entries to `.gitattributes` instead. More specific values take precedence.
 
-> **No `carabiner.jsonc` file?** Carabiner adds entries for every supported tool. `gitignoreTargetsOnly` applies only when a configuration file exists, so projects without one still receive useful `.gitignore` coverage.
+!!! note "No `carabiner.jsonc` file?"
+    Carabiner adds entries for every supported tool. `gitignoreTargetsOnly` applies only when a configuration file exists, so projects without one still receive useful `.gitignore` coverage.
 
-> **`agentsmd` entries are always included.** When `gitignoreTargetsOnly` is `true` and `agentsmd` is absent from `targets`, entries for `AGENTS.md` and related paths are still added. `AGENTS.md` is a common file that many AI tools read without regard to the selected targets. To omit these entries, pass an explicit `--targets` value that does not include `agentsmd`.
+!!! warning "`agentsmd` entries are always included"
+    When `gitignoreTargetsOnly` is `true` and `agentsmd` is absent from `targets`, entries for `AGENTS.md` and related paths are still added. `AGENTS.md` is a common file that many AI tools read without regard to the selected targets. To omit these entries, pass an explicit `--targets` value that does not include `agentsmd`.
 
 ### Options
 
@@ -283,7 +297,8 @@ When neither `--skills` nor `--rules` is supplied, every skill is installed for 
 
 `fetch` copies configuration files directly from GitHub repositories. GitLab support is planned.
 
-> **Note:** This feature is still in development and may change in future releases.
+!!! note
+    This feature is still in development and may change in future releases.
 
 `fetch` looks for feature directories such as `rules/`, `commands/`, `skills/`, and `subagents/` at the chosen repository path. It does not require a `.carabiner/` directory, so it can read external repositories such as `vercel-labs/agent-skills` and `anthropics/skills`.
 

@@ -10,7 +10,8 @@ Install Rust and Cargo first with [rustup](https://rustup.rs/), then run:
 cargo install carabiner --locked
 ```
 
-Cargo installs the `carabiner` executable in its bin directory, which is usually `$HOME/.cargo/bin`. Add that directory to your `PATH` if the command is not available in a new terminal.
+!!! note
+    Cargo installs the `carabiner` executable in its bin directory, which is usually `$HOME/.cargo/bin`. Add that directory to your `PATH` if the command is not available in a new terminal.
 
 Verify the installation:
 

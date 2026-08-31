@@ -6,7 +6,7 @@ Carabiner reads custom command sources from `.carabiner/commands/*.md`. A source
 
 Save the following file as `.carabiner/commands/summarize.md`:
 
-```md
+```md title=".carabiner/commands/summarize.md"
 ---
 targets: ["claudecode"]
 description: "Summarize git diff"

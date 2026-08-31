@@ -24,7 +24,7 @@ The server reads JSON-RPC messages from standard input and writes JSON-RPC respo
 
 Add the server to the canonical MCP configuration at `.carabiner/mcp.jsonc`. Carabiner can then generate the selected target's native MCP configuration from this source file.
 
-```json
+```json title=".carabiner/mcp.jsonc"
 {
   "$schema": "https://github.com/findyourexit/carabiner/releases/latest/download/mcp-schema.json",
   "mcpServers": {

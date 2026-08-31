@@ -8,7 +8,7 @@ Run `carabiner doctor` first. It performs read-only checks on `carabiner.jsonc` 
 
 Add the following setting to `.claude/settings.json` or `.claude/settings.local.json` if you want Claude Code to automatically approve every project MCP server:
 
-```diff
+```diff title=".claude/settings.json"
 {
 + "enableAllProjectMcpServers": true
 }
@@ -50,7 +50,7 @@ Only add the access that your workflow requires. Network and filesystem settings
 
 Edit non-domain network settings directly in `.codex/config.toml`. Carabiner manages webfetch-derived domain rules. When it does not generate an allow-domain rule, it preserves a user-authored `network.enabled` value. It also preserves unrecognized network keys, including `dangerously_allow_all_unix_sockets`, and warns when it does so.
 
-```toml
+```toml title=".codex/config.toml"
 [permissions.carabiner.network]
 enabled = true
 # Broad option that allows all Unix sockets.
@@ -67,7 +67,7 @@ dangerously_allow_all_unix_sockets = true
 
 Author filesystem entries in `.carabiner/permissions.jsonc`, not in `.codex/config.toml`. Carabiner fully manages the profile's `filesystem` table, so hand-written entries there are replaced by the next `carabiner generate`. Put rules in the canonical configuration and use the tool-scoped `codexcli.permission` block so they apply only to Codex CLI.
 
-```jsonc
+```jsonc title=".carabiner/permissions.jsonc"
 {
   "permission": {
     // ... shared rules ...
@@ -100,12 +100,23 @@ These rules generate `"." = "write"`, `".git/**" = "write"`, `".agents/**" = "wr
 
 What the entries do:
 
-- **Unix socket access:** `git push` and `git fetch` over SSH need the SSH-agent socket. `dangerously_allow_all_unix_sockets = true` is environment-independent but broad. A `unix_sockets` allow entry for the resolved `$SSH_AUTH_SOCK` path is narrower.
-- **`.` / `.git/**` / `.agents/**` / `.codex/**` write:** This is a practical workspace write set. `"."` makes workspace-subtree write access explicit because a tool-scoped category replaces the shared block. `".git/**"` is the default carve-out. `.agents/**` and `.codex/**` add access because the `:workspace` baseline keeps those directories read-only. Without them, a Codex session cannot update agent files or its project-level configuration. Write access to `.codex/**` lets a compromised session alter the configuration used by a later run. Write access to `.agents/**` lets it persist unwanted rules or skills. Omit either entry if in-session writes are unnecessary.
-- **`:root` / `:minimal` write:** Package runners and development tools can write user-level caches such as `~/.cache` and `~/.local`, which the `:workspace` baseline denies. `":root" = "write"` alone is not sufficient because Carabiner normally emits `":minimal" = "read"`. Codex treats that entry as narrowing the broader `:root` grant. Set both to `write` when full disk write access is required. This also permits writes to platform system paths, shell startup files, and programs on `PATH`. Prefer narrower home-directory patterns such as `"~/.cache/**"` when they are sufficient.
-- **`:tmpdir` / `:slash_tmp` write:** These allow writes to `$TMPDIR` and `/tmp`, which some build tools require.
-- **`~/.codex/**` read with `auth.json` deny:** Codex can read its configuration tree without reading credentials. Codex expands tilde paths, so no `$HOME` substitution is needed.
-- **`glob_scan_max_depth`:** Carabiner automatically emits Codex's default value of `8` when generated workspace-root rules contain an unbounded `**` pattern. The default `.git/**` carve-out is one such pattern.
+`Unix socket access`
+:   `git push` and `git fetch` over SSH need the SSH-agent socket. `dangerously_allow_all_unix_sockets = true` is environment-independent but broad. A `unix_sockets` allow entry for the resolved `$SSH_AUTH_SOCK` path is narrower.
+
+`.` / `.git/**` / `.agents/**` / `.codex/**` write
+:   This is a practical workspace write set. `"."` makes workspace-subtree write access explicit because a tool-scoped category replaces the shared block. `".git/**"` is the default carve-out. `.agents/**` and `.codex/**` add access because the `:workspace` baseline keeps those directories read-only. Without them, a Codex session cannot update agent files or its project-level configuration. Write access to `.codex/**` lets a compromised session alter the configuration used by a later run. Write access to `.agents/**` lets it persist unwanted rules or skills. Omit either entry if in-session writes are unnecessary.
+
+`:root` / `:minimal` write
+:   Package runners and development tools can write user-level caches such as `~/.cache` and `~/.local`, which the `:workspace` baseline denies. `":root" = "write"` alone is not sufficient because Carabiner normally emits `":minimal" = "read"`. Codex treats that entry as narrowing the broader `:root` grant. Set both to `write` when full disk write access is required. This also permits writes to platform system paths, shell startup files, and programs on `PATH`. Prefer narrower home-directory patterns such as `"~/.cache/**"` when they are sufficient.
+
+`:tmpdir` / `:slash_tmp` write
+:   These allow writes to `$TMPDIR` and `/tmp`, which some build tools require.
+
+`~/.codex/**` read with `auth.json` deny
+:   Codex can read its configuration tree without reading credentials. Codex expands tilde paths, so no `$HOME` substitution is needed.
+
+`glob_scan_max_depth`
+:   Carabiner automatically emits Codex's default value of `8` when generated workspace-root rules contain an unbounded `**` pattern. The default `.git/**` carve-out is one such pattern.
 
 See the [Codex permissions reference](https://developers.openai.com/codex/permissions) for the complete path and network syntax.
 
@@ -117,7 +128,7 @@ Add generated paths to `.gitattributes` with GitHub's [`linguist-generated`](htt
 
 For example, a repository using `.agent/`, Claude Code, Cursor, and Copilot targets can use:
 
-```
+``` title=".gitattributes"
 .agent/rules/**           linguist-generated
 .agent/skills/**          linguist-generated
 .agent/workflows/**       linguist-generated

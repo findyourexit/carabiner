@@ -6,8 +6,7 @@ Carabiner reads `carabiner.jsonc` from the root of a project. The file uses JSON
 
 Carabiner provides a JSON Schema for editor validation and completion. Add `$schema` to `carabiner.jsonc`:
 
-```jsonc
-// carabiner.jsonc
+```jsonc title="carabiner.jsonc"
 {
   "$schema": "https://github.com/findyourexit/carabiner/releases/latest/download/config-schema.json",
   "targets": ["claudecode"],
@@ -19,8 +18,7 @@ Carabiner provides a JSON Schema for editor validation and completion. Add `$sch
 
 Use the array form of `targets` when every selected target should receive the same features:
 
-```jsonc
-// carabiner.jsonc
+```jsonc title="carabiner.jsonc"
 {
   "$schema": "https://github.com/findyourexit/carabiner/releases/latest/download/config-schema.json",
 
@@ -84,66 +82,70 @@ Unless you pass an explicit `--targets` option, Carabiner adds `agentsmd` entrie
 
 The `targets` option accepts either an array or an object. Use an object to choose features separately for each target:
 
-```jsonc
-// carabiner.jsonc
-{
-  "targets": {
-    "claudecode": ["rules", "commands"],
-    "cursor": ["rules", "mcp"],
-    "copilot": ["rules", "subagents"],
-  },
-}
-```
+=== "Array form"
 
-This configuration generates rules and commands for `claudecode`, rules and MCP configuration for `cursor`, and rules and subagents for `copilot`.
-
-> **Important:** When `targets` uses the object form, omit the top-level `features` field. The configuration loader rejects a configuration that defines both.
-
-Use `"*"` inside a target's feature array to enable every feature for that target:
-
-```jsonc
-{
-  "targets": {
-    "claudecode": ["*"], // Generate all features for Claude Code.
-    "cursor": ["rules"], // Generate only rules for Cursor.
-  },
-}
-```
-
-### Per-feature options
-
-Use an object instead of an array for a target's value when a feature needs options. Each feature key can be `true`, `false`, or an options object.
-
-```jsonc
-{
-  "gitignoreDestination": "gitignore",
-  "targets": {
-    "claudecode": {
-      "gitignoreDestination": "gitattributes",
-      "rules": { "ruleDiscoveryMode": "explicit" },
-      "ignore": {
-        "fileMode": "local",
-        "gitignoreDestination": "gitignore",
+    ```jsonc title="carabiner.jsonc"
+    {
+      "targets": {
+        "claudecode": ["rules", "commands"],
+        "cursor": ["rules", "mcp"],
+        "copilot": ["rules", "subagents"],
       },
-    },
-  },
-}
-```
+    }
+    ```
 
-`gitignoreDestination` selects where `carabiner gitignore` writes path entries. You can set it at the root, target, or target-feature level. The allowed values are `"gitignore"`, which is the default, and `"gitattributes"`.
+    This configuration generates rules and commands for `claudecode`, rules and MCP configuration for `cursor`, and rules and subagents for `copilot`.
 
-A `"gitattributes"` setting at target-feature level takes precedence over one at target level. A target-level `"gitattributes"` setting takes precedence over the root setting. When neither scope selects `"gitattributes"`, Carabiner uses the root setting.
+    !!! warning
+        When `targets` uses the object form, omit the top-level `features` field. The configuration loader rejects a configuration that defines both.
 
-The available per-feature options are:
+    Use `"*"` inside a target's feature array to enable every feature for that target:
 
-| Target | Feature | Option | Values | Default |
-| --- | --- | --- | --- | --- |
-| `claudecode` | `rules` | `ruleDiscoveryMode` | `"none"` or `"explicit"` | Target default |
-| Any target | `rules` | `includeLocalRoot` | `true` or `false`. When `false`, rules marked `localRoot` are skipped for that target. | `true` |
-| `claudecode` | `ignore` | `fileMode` | `"shared"` for `settings.json` or `"local"` for `settings.local.json` | `"shared"` |
-| Any target | Any feature | `gitignoreDestination` | `"gitignore"` or `"gitattributes"` | `"gitignore"` |
+    ```jsonc title="carabiner.jsonc"
+    {
+      "targets": {
+        "claudecode": ["*"], // Generate all features for Claude Code.
+        "cursor": ["rules"], // Generate only rules for Cursor.
+      },
+    }
+    ```
 
-See [`docs/reference/file-formats.md`](../reference/file-formats.md#where-ignore-patterns-are-written-per-tool) for the Claude Code `fileMode` default and guidance on using `"local"`.
+=== "Object form"
+
+    ### Per-feature options
+
+    Use an object instead of an array for a target's value when a feature needs options. Each feature key can be `true`, `false`, or an options object.
+
+    ```jsonc title="carabiner.jsonc"
+    {
+      "gitignoreDestination": "gitignore",
+      "targets": {
+        "claudecode": {
+          "gitignoreDestination": "gitattributes",
+          "rules": { "ruleDiscoveryMode": "explicit" },
+          "ignore": {
+            "fileMode": "local",
+            "gitignoreDestination": "gitignore",
+          },
+        },
+      },
+    }
+    ```
+
+    `gitignoreDestination` selects where `carabiner gitignore` writes path entries. You can set it at the root, target, or target-feature level. The allowed values are `"gitignore"`, which is the default, and `"gitattributes"`.
+
+    A `"gitattributes"` setting at target-feature level takes precedence over one at target level. A target-level `"gitattributes"` setting takes precedence over the root setting. When neither scope selects `"gitattributes"`, Carabiner uses the root setting.
+
+    The available per-feature options are:
+
+    | Target | Feature | Option | Values | Default |
+    | --- | --- | --- | --- |
+    | `claudecode` | `rules` | `ruleDiscoveryMode` | `"none"` or `"explicit"` | Target default |
+    | Any target | `rules` | `includeLocalRoot` | `true` or `false`. When `false`, rules marked `localRoot` are skipped for that target. | `true` |
+    | `claudecode` | `ignore` | `fileMode` | `"shared"` for `settings.json` or `"local"` for `settings.local.json` | `"shared"` |
+    | Any target | Any feature | `gitignoreDestination` | `"gitignore"` or `"gitattributes"` | `"gitignore"` |
+
+    See [`docs/reference/file-formats.md`](../reference/file-formats.md#where-ignore-patterns-are-written-per-tool) for the Claude Code `fileMode` default and guidance on using `"local"`.
 
 ## Local Configuration
 
@@ -158,8 +160,7 @@ Configuration values are resolved in this order, from highest to lowest priority
 
 For example, a developer can select a local target and enable detailed output without changing the shared configuration:
 
-```jsonc
-// carabiner.local.jsonc (not committed to git)
+```jsonc title="carabiner.local.jsonc"
 {
   "$schema": "https://github.com/findyourexit/carabiner/releases/latest/download/config-schema.json",
   // Override targets for local development.
@@ -173,7 +174,7 @@ For example, a developer can select a local target and enable detailed output wi
 
 When multiple targets write the same output file, the last target in the `targets` array wins. For example, both `agentsmd` and `opencode` generate `AGENTS.md`:
 
-```jsonc
+```jsonc title="carabiner.jsonc"
 {
   // opencode wins because it comes last.
   "targets": ["agentsmd", "opencode"],
@@ -183,7 +184,7 @@ When multiple targets write the same output file, the last target in the `target
 
 Carabiner generates `AGENTS.md` for `agentsmd` first, then generates it for `opencode`, replacing the previous file. Reverse the order when `agentsmd` should supply the final file:
 
-```jsonc
+```jsonc title="carabiner.jsonc"
 {
   // agentsmd wins because it comes last.
   "targets": ["opencode", "agentsmd"],

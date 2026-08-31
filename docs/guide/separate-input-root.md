@@ -45,6 +45,12 @@ Without an explicit output option or `--global`, generated files go to the curre
 
 List input roots from the base to the most specific overlay. Later roots take precedence when they provide the same artifact.
 
+```mermaid
+flowchart LR
+    base["Base input root"] -->|provides artifact| effective["Effective artifact (later root wins)"]
+    overlay["Later input root"] -->|replaces matching artifact| effective
+```
+
 ```bash
 carabiner generate --input-roots ./.carabiner ./.carabiner.local --targets "*" --features rules,mcp
 ```
@@ -63,11 +69,20 @@ An absent optional overlay contributes nothing. In `--watch` mode, source files 
 
 ### Merge behavior
 
-- **Rules, commands, subagents, and checks:** Carabiner merges Markdown files by relative path. A later root replaces an earlier root's matching file. Path matching uses lowercase names, so do not rely on names that differ only by letter case.
-- **Skills:** A later root replaces a same-named skill directory as a whole, including its companion files. Skill names that differ only by letter case should not be used as distinct skills.
-- **MCP:** For each root, Carabiner reads the first available file of `mcp.jsonc`, `mcp.json`, or `.mcp.json`. It merges `mcpServers` and `<toolname>.mcpServers` maps by server name, with later server definitions replacing earlier ones. Other object values merge one level deep, while non-object values are replaced by the later root.
-- **Hooks and permissions:** For `hooks.jsonc` or `hooks.json`, and for `permissions.jsonc` or `permissions.json`, the last root that provides a file replaces the complete earlier file.
-- **Ignore:** For each root, Carabiner checks `.aiignore` first and then the compatibility file `.carabinerignore` beside the root. The last available ignore file wins.
+**Rules, commands, subagents, and checks**
+:   Carabiner merges Markdown files by relative path. A later root replaces an earlier root's matching file. Path matching uses lowercase names, so do not rely on names that differ only by letter case.
+
+**Skills**
+:   A later root replaces a same-named skill directory as a whole, including its companion files. Skill names that differ only by letter case should not be used as distinct skills.
+
+**MCP**
+:   For each root, Carabiner reads the first available file of `mcp.jsonc`, `mcp.json`, or `.mcp.json`. It merges `mcpServers` and `<toolname>.mcpServers` maps by server name, with later server definitions replacing earlier ones. Other object values merge one level deep, while non-object values are replaced by the later root.
+
+**Hooks and permissions**
+:   For `hooks.jsonc` or `hooks.json`, and for `permissions.jsonc` or `permissions.json`, the last root that provides a file replaces the complete earlier file.
+
+**Ignore**
+:   For each root, Carabiner checks `.aiignore` first and then the compatibility file `.carabinerignore` beside the root. The last available ignore file wins.
 
 Within a source tree, a non-curated artifact takes precedence over a same-named artifact beneath `.curated/`. This applies to rules, commands, subagents, checks, and skills. Carabiner makes that choice within each root before applying root order.
 
@@ -75,7 +90,7 @@ Within a source tree, a non-curated artifact takes precedence over a same-named 
 
 Set `inputRoots` in `carabiner.jsonc` or `carabiner.local.jsonc` when you do not want to pass the option on every invocation.
 
-```jsonc
+```jsonc title="carabiner.jsonc"
 {
   "inputRoots": ["./.carabiner", "./.carabiner.local"],
 }

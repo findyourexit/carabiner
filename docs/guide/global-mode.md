@@ -16,7 +16,7 @@ carabiner init
 
 Set `global` to `true` in `carabiner.jsonc`. Select explicit targets and features so that only the configuration you intend to manage is generated.
 
-```jsonc
+```jsonc title="carabiner.jsonc"
 {
   "global": true,
   "targets": ["claudecode"],
@@ -28,7 +28,7 @@ Set `global` to `true` in `carabiner.jsonc`. Select explicit targets and feature
 
 Global mode uses the same `.carabiner/` source layout as project mode. For example, add `.carabiner/rules/overview.md`.
 
-```md
+```md title=".carabiner/rules/overview.md"
 ---
 root: true
 targets: ["claudecode"]

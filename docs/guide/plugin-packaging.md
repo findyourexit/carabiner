@@ -25,7 +25,7 @@ carabiner generate \
 
 You can keep target-specific output roots and features in `carabiner.jsonc`:
 
-```jsonc
+```jsonc title="carabiner.jsonc"
 {
   "outputRoots": {
     "claudecode-plugin": "./plugins/claude-review-tools",

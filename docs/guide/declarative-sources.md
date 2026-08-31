@@ -17,7 +17,7 @@ The command fetches only the source being added. Existing sources must already b
 
 Add a `sources` array to your `carabiner.jsonc`:
 
-```jsonc
+```jsonc title="carabiner.jsonc"
 {
   "$schema": "https://github.com/findyourexit/carabiner/releases/latest/download/config-schema.json",
   "targets": ["copilot", "claudecode"],
@@ -93,12 +93,13 @@ Each entry in `sources` accepts:
 
 Rules are flat source files: only direct `.md` children of `rulesPath` are discovered. Nested rule files are not installed. Fetched rules are written to `.carabiner/rules/.curated/<rule-name>.md`; during generation they behave as if they were ordinary files directly under `.carabiner/rules/`.
 
-> **Repository-root paths (`path: "."`):** When `path` is `""`, `"."`, or `"./"` (with the `git` transport), Carabiner disables sparse-checkout and fetches the **entire** repository tree, then groups each top-level directory as a skill. This is useful for single-skill repositories whose `SKILL.md` lives at the repo root (`<repo>/SKILL.md`) rather than under a `skills/` container. Because the whole tree is fetched, prefer a narrower `path` for large repositories; the fetch is still bounded by Carabiner's file-count, total-size, and depth limits.
+!!! info "Repository-root paths (`path: "."`)"
+    When `path` is `""`, `"."`, or `"./"` (with the `git` transport), Carabiner disables sparse-checkout and fetches the **entire** repository tree, then groups each top-level directory as a skill. This is useful for single-skill repositories whose `SKILL.md` lives at the repo root (`<repo>/SKILL.md`) rather than under a `skills/` container. Because the whole tree is fetched, prefer a narrower `path` for large repositories; the fetch is still bounded by Carabiner's file-count, total-size, and depth limits.
 
 ## npm Transport (Experimental)
 
-> [!WARNING]
-> The `npm` transport is **experimental**. Its configuration surface and lockfile format may change in a future release.
+!!! warning
+    The `npm` transport is **experimental**. Its configuration surface and lockfile format may change in a future release.
 
 The `npm` transport fetches skills from any registry that implements the npm registry API. Because JFrog Artifactory, Sonatype Nexus, Verdaccio, GitHub Packages, and similar private registries all expose an npm-compatible API, a single transport with a configurable `registry` URL covers them all. This lets enterprises whose build environments cannot reach public GitHub distribute skills internally as npm packages.
 
@@ -116,6 +117,13 @@ Authentication uses a bearer token from an environment variable: `NPM_TOKEN` by 
 Resolved versions are pinned in `carabiner-npm.lock.json` (next to `carabiner.lock`), which records the resolved version, the tarball integrity, and per-artifact content hashes. Commit it for reproducible installs; `--update` and `--frozen` behave the same as for git sources.
 
 ## How It Works
+
+```mermaid
+flowchart LR
+    sources["Sources in carabiner.jsonc"] --> install["carabiner install resolves refs"]
+    install --> artifacts["Artifacts written to .curated/ directories"]
+    artifacts --> generate["carabiner generate uses them"]
+```
 
 When `carabiner install` runs and `sources` is configured:
 
@@ -136,6 +144,24 @@ When `carabiner install` runs and `sources` is configured:
 | `carabiner` | `carabiner.jsonc` `sources`   | `carabiner.lock` (+ `carabiner-npm.lock.json` for npm sources) | `.carabiner/rules/.curated/<name>.md`, `.carabiner/skills/.curated/<name>/` (then re-emitted by `carabiner generate`) |
 | `apm`      | `apm.yml` `dependencies.apm` | `carabiner-apm.lock.yaml`                                     | `.github/instructions/`, `.github/skills/` (APM v1 layout)                                                         |
 | `gh`       | `carabiner.jsonc` `sources`   | `carabiner-gh.lock.yaml`                                      | Per-agent / per-scope dirs (matching `gh skill install`)                                                           |
+
+=== "carabiner mode"
+
+    ```bash
+    carabiner install
+    ```
+
+=== "gh mode"
+
+    ```bash
+    carabiner install --mode gh
+    ```
+
+=== "apm mode"
+
+    ```bash
+    carabiner install --mode apm
+    ```
 
 When `--mode` is omitted, Carabiner defaults to `carabiner` mode. If `apm.yml` is present and `sources` is also defined, you must pass `--mode apm` or `--mode carabiner` to disambiguate.
 
@@ -179,7 +205,7 @@ The remote repository must use the layout `skills/<name>/SKILL.md` (one director
 
 Example `carabiner.jsonc`:
 
-```jsonc
+```jsonc title="carabiner.jsonc"
 {
   "targets": ["claudecode"],
   "features": ["rules"],
@@ -232,7 +258,7 @@ carabiner generate
 
 The lockfile at `carabiner.lock` (at the project root) records the resolved commit SHA, rule selection metadata, and per-artifact integrity hashes for each source so that builds are reproducible. Carabiner verifies cached rule content against these hashes before reusing it. It is safe to commit this file. An example:
 
-```json
+```json title="carabiner.lock"
 {
   "lockfileVersion": 1,
   "sources": {
@@ -259,7 +285,7 @@ To update locked refs, run `carabiner install --update`.
 
 npm-transport sources (experimental) are pinned in a separate `carabiner-npm.lock.json`, because they lock a resolved package version and tarball integrity instead of a commit SHA:
 
-```json
+```json title="carabiner-npm.lock.json"
 {
   "lockfileVersion": 1,
   "sources": {
@@ -298,8 +324,8 @@ carabiner install
 GITHUB_TOKEN=$(gh auth token) carabiner install
 ```
 
-> [!TIP]
-> The `install` command also accepts a `--token` flag for explicit authentication: `carabiner install --token ghp_xxxx`.
+!!! tip
+    The `install` command also accepts a `--token` flag for explicit authentication: `carabiner install --token ghp_xxxx`.
 
 ## Curated vs Local Inputs
 
