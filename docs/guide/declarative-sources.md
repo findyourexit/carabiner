@@ -310,4 +310,4 @@ GITHUB_TOKEN=$(gh auth token) carabiner install
 | `.carabiner/rules/<name>.md`          | Local   | Higher                     | Yes              |
 | `.carabiner/rules/.curated/<name>.md` | Curated | Lower                      | No (gitignored)  |
 
-When a local and curated artifact in the same source tree share a name, the local artifact is used and the remote one is not fetched. With multiple input roots, this per-root selection happens before the roots are merged in order; see [Separate Input Root](./separate-input-root.md#merge-rules-per-feature).
+When a local and curated artifact in the same source tree share a name, the local artifact is used and the remote one is not fetched. With multiple input roots, this per-root selection happens before the roots are merged in order; see [Separate Input Root](./separate-input-root.md#merge-behavior).

@@ -1,0 +1,120 @@
+[project]
+site_name = "Carabiner"
+site_url = "https://tomlarcher.com/carabiner/"
+site_description = "Unified AI rules management CLI — author rules, commands, permissions, MCP servers, and subagent profiles once, then generate the configuration files each AI coding tool requires."
+repo_url = "https://github.com/findyourexit/carabiner"
+repo_name = "findyourexit/carabiner"
+edit_uri = "edit/main/docs/"
+
+copyright = "Copyright &copy; 2026 Tom Larcher"
+
+nav = [
+  { "Home" = "index.md" },
+  { "Getting Started" = [
+    { "Installation" = "getting-started/installation.md" },
+    { "Quick Start" = "getting-started/quick-start.md" },
+  ]},
+  { "Guides" = [
+    { "Configuration" = "guide/configuration.md" },
+    { "Declarative Sources" = "guide/declarative-sources.md" },
+    { "Separate Input Roots" = "guide/separate-input-root.md" },
+    { "Global Mode" = "guide/global-mode.md" },
+    { "Plugin Packaging" = "guide/plugin-packaging.md" },
+    { "Dry Run and Check" = "guide/dry-run.md" },
+    { "Simulated Features" = "guide/simulated-features.md" },
+    { "Official Skills" = "guide/official-skills.md" },
+    { "Why Carabiner" = "guide/why-carabiner.md" },
+  ]},
+  { "Reference" = [
+    { "CLI Commands" = "reference/cli-commands.md" },
+    { "Command Syntax" = "reference/command-syntax.md" },
+    { "Supported Tools" = "reference/supported-tools.md" },
+    { "File Formats" = "reference/file-formats.md" },
+    { "MCP Server" = "reference/mcp-server.md" },
+  ]},
+  { "Tools" = [
+    { "Takt" = "tools/takt.md" },
+  ]},
+  { "Programmatic API" = "api/programmatic-api.md" },
+  { "FAQ" = "faq.md" },
+]
+
+[project.theme]
+language = "en"
+features = [
+  "content.action.edit",
+  "content.action.view",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.code.select",
+  "content.footnote.tooltips",
+  "content.tabs.link",
+  "content.tooltips",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+  "search.suggest",
+  "toc.follow",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "indigo"
+accent = "indigo"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "indigo"
+accent = "indigo"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to system preference"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/findyourexit/carabiner"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/rust"
+link = "https://crates.io/crates/carabiner"
+
+[project.markdown_extensions]
+abbr = {}
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+toc.permalink = true
+pymdownx.betterem = {}
+pymdownx.caret = {}
+pymdownx.details = {}
+pymdownx.emoji.emoji_generator = "zensical.extensions.emoji.to_svg"
+pymdownx.emoji.emoji_index = "zensical.extensions.emoji.twemoji"
+pymdownx.highlight.anchor_linenums = true
+pymdownx.highlight.line_spans = "__span"
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.inlinehilite = {}
+pymdownx.keys = {}
+pymdownx.mark = {}
+pymdownx.smartsymbols = {}
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+pymdownx.tabbed.alternate_style = true
+pymdownx.tasklist.custom_checkbox = true
+pymdownx.tilde = {}
