@@ -10,7 +10,7 @@ Thank you for improving Carabiner. Contributions are welcome across Rust code, t
 
 ## Development setup
 
-Carabiner uses Rust 1.88 and the 2021 edition. The pinned toolchain is declared in `rust-toolchain.toml`.
+Carabiner uses Rust 1.98 and the 2021 edition. The pinned toolchain is declared in `rust-toolchain.toml`.
 
 ```console
 cargo check --all-targets --locked
