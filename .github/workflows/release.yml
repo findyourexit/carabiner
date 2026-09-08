@@ -99,6 +99,7 @@ jobs:
 
       - name: Install pinned Cross
         if: matrix.cross
+        shell: bash
         run: cargo install cross --version "${CROSS_VERSION}" --locked
 
       - name: Build

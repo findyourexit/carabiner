@@ -10,6 +10,7 @@ All notable Carabiner changes are documented here. The format follows [Keep a Ch
 - `install --frozen` now validates cached artifact hashes and never fetches mutable source state.
 - The release workflow now publishes the raw platform assets consumed by `carabiner update`.
 - Codex CLI project capabilities no longer advertise unsupported project-scoped commands.
+- Release builds now install Cross through Bash on Windows cross-compilation targets.
 
 ### Changed
 
