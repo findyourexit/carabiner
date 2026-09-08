@@ -690,8 +690,10 @@ pub fn is_empty_payload(path: &Path, content: &str) -> bool {
 }
 
 pub fn home_dir() -> Result<PathBuf> {
-    std::env::var_os("HOME_DIR")
-        .or_else(|| std::env::var_os("HOME"))
+    let configured = std::env::var_os("HOME_DIR").or_else(|| std::env::var_os("HOME"));
+    #[cfg(windows)]
+    let configured = configured.or_else(|| std::env::var_os("USERPROFILE"));
+    configured
         .map(PathBuf::from)
-        .ok_or_else(|| anyhow!("HOME is not set"))
+        .ok_or_else(|| anyhow!("home directory is not set"))
 }

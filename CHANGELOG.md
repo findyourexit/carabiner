@@ -4,6 +4,12 @@ All notable Carabiner changes are documented here. The format follows [Keep a Ch
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-08
+
+### Fixed
+
+- Windows now uses `USERPROFILE` when `HOME` is unset, restoring Hermes Agent project generation and Windows compatibility coverage.
+
 ## [0.1.3] - 2026-09-08
 
 ### Fixed

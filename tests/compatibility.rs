@@ -185,3 +185,43 @@ fn every_global_target_generates_in_an_isolated_home() {
 
     fs::remove_dir_all(root).unwrap();
 }
+
+#[cfg(windows)]
+#[test]
+fn hermes_project_generation_uses_userprofile_when_home_is_unset() {
+    let root = temp_project("compatibility-userprofile");
+    let project = root.join("project");
+    write_canonical_fixture(&project.join(".carabiner"));
+    let userprofile = root.join("userprofile");
+    fs::create_dir_all(&userprofile).unwrap();
+    let features = supported_features("hermesagent", false).join(",");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .args([
+            "--json",
+            "generate",
+            "--targets",
+            "hermesagent",
+            "--features",
+            features.as_str(),
+            "--silent",
+        ])
+        .current_dir(&project)
+        .env("USERPROFILE", &userprofile)
+        .env_remove("HOME_DIR")
+        .env_remove("HOME")
+        .env_remove("HERMES_HOME")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "Hermes project generation failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        userprofile.join(".hermes/config.yaml").is_file(),
+        "Hermes configuration was not written under USERPROFILE"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
