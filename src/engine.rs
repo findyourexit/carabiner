@@ -6552,7 +6552,7 @@ fn render_kimi_hooks(value: &Value, existing: &Value, trusted_directory: &Path) 
     document.insert("hooks".into(), Value::Array(entries));
     Ok(format!(
         "{}\n",
-        toml::to_string_pretty(&toml::Value::try_from(Value::Object(document))?)?.trim_end()
+        toml::to_string_pretty(&Value::Object(document))?.trim_end()
     ))
 }
 
