@@ -57,12 +57,12 @@ jobs:
       matrix:
         include:
           - target: aarch64-apple-darwin
-            runner: macos-14
+            runner: macos-26
             cross: false
             archive: tar.gz
             update_asset: carabiner-darwin-arm64
           - target: x86_64-apple-darwin
-            runner: macos-14
+            runner: macos-26
             cross: false
             archive: tar.gz
             update_asset: carabiner-darwin-x64
