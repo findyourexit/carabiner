@@ -4,6 +4,8 @@ All notable Carabiner changes are documented here. The format follows [Keep a Ch
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-08
+
 ### Fixed
 
 - MCP file operations now reject symlinked destination paths, including nested skill files and deletes.
