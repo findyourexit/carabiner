@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended", ":disableDependencyDashboard"],
-  "enabledManagers": ["cargo", "github-actions"],
+  "enabledManagers": ["cargo", "github-actions", "pip_requirements"],
   "automerge": false,
   "dependencyDashboard": false,
   "minimumReleaseAge": "7 days",
@@ -18,7 +18,7 @@
     {
       "description": "Group core runtime dependencies",
       "matchManagers": ["cargo"],
-      "matchPackageNames": ["anyhow", "chrono", "clap", "libc", "serde", "serde_json", "serde_yaml", "toml", "walkdir"],
+      "matchPackageNames": ["anyhow", "base64", "chrono", "clap", "flate2", "indexmap", "libc", "serde", "serde_json", "serde_yaml_ng", "sha1", "sha2", "tar", "toml", "walkdir"],
       "groupName": "runtime dependencies"
     },
     {
@@ -26,6 +26,11 @@
       "matchManagers": ["github-actions"],
       "groupName": "github actions",
       "pinDigests": true
+    },
+    {
+      "description": "Update locked documentation dependencies together",
+      "matchManagers": ["pip_requirements"],
+      "groupName": "documentation dependencies"
     },
     {
       "description": "Never automerge security or vulnerability remediation",

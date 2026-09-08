@@ -4,6 +4,19 @@ All notable Carabiner changes are documented here. The format follows [Keep a Ch
 
 ## [Unreleased]
 
+### Fixed
+
+- MCP file operations now reject symlinked destination paths, including nested skill files and deletes.
+- `install --frozen` now validates cached artifact hashes and never fetches mutable source state.
+- The release workflow now publishes the raw platform assets consumed by `carabiner update`.
+- Codex CLI project capabilities no longer advertise unsupported project-scoped commands.
+
+### Changed
+
+- npm installs require HTTPS, enforce integrity metadata, use in-process hashing and hardened archive extraction, and require local opt-in before sending credentials to private registries.
+- CI now verifies the declared Rust MSRV; release and documentation workflows use pinned tools, dependencies, and least-privilege jobs.
+- YAML parsing now uses the maintained `serde_yaml_ng` fork.
+
 ## [0.1.1] - 2026-08-31
 
 ### Added

@@ -1,28 +1,35 @@
 name: Documentation
 
 on:
+  pull_request:
+    paths:
+      - "docs/**"
+      - "zensical.toml"
+      - ".github/workflows/docs.yml"
+      - ".github/requirements-docs.txt"
   push:
     branches:
       - main
+    paths:
+      - "docs/**"
+      - "zensical.toml"
+      - ".github/workflows/docs.yml"
+      - ".github/requirements-docs.txt"
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: docs-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   ZENSICAL_VERSION: "0.0.57"
+  ZENSICAL_SHA256: "021dd8fb70d1816cd012684fcf45d32b8f88a0cd28b7cbe71e5f8564f6d5764d"
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -31,27 +38,46 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v6
-
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: "3.x"
+          python-version: "3.12"
 
-      - name: Install Zensical
+      - name: Install verified documentation dependencies
+        shell: bash
         run: |
-          pip install \
-            "https://github.com/zensical/zensical/releases/download/v${ZENSICAL_VERSION}/zensical-${ZENSICAL_VERSION}-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+          python -m pip install --disable-pip-version-check --require-hashes -r .github/requirements-docs.txt
+          WHEEL="zensical-${ZENSICAL_VERSION}-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+          curl --fail --location --silent --show-error --retry 2 \
+            --output "${WHEEL}" \
+            "https://github.com/zensical/zensical/releases/download/v${ZENSICAL_VERSION}/${WHEEL}"
+          echo "${ZENSICAL_SHA256}  ${WHEEL}" | sha256sum --check --status
+          python -m pip install --disable-pip-version-check --no-deps "${WHEEL}"
 
       - name: Build documentation
         run: zensical build --clean
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: site
 
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

@@ -97,13 +97,13 @@ Install Carabiner with `cargo install carabiner --locked`.
     # Print the five most recent releases
     carabiner release-notes findyourexit/carabiner --latest 5
 
-    # Update a Carabiner release. A repository is required.
-    carabiner update --repository owner/carabiner
+    # Update from Carabiner's official release repository
+    carabiner update
 
     # Check for updates without installing one
-    carabiner update --repository owner/carabiner --check
+    carabiner update --check
 
-    # Update even when the installed version is already current
+    # Update a fork or private distribution
     carabiner update --repository owner/carabiner --force
     ```
 

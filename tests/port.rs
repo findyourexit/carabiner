@@ -4,10 +4,14 @@ use carabiner::engine::{
     GenerateOptions, ImportOptions,
 };
 use carabiner::model::{FeatureResult, GenerateResult, ImportResult};
-use carabiner::util::{parse_frontmatter, parse_jsonc};
+use carabiner::util::{parse_frontmatter, parse_jsonc, write_text};
 use std::fs;
+#[cfg(unix)]
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+#[cfg(unix)]
+use std::process::Stdio;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn temp_project(label: &str) -> PathBuf {
@@ -28,6 +32,33 @@ fn config(cwd: &Path, targets: &[&str], features: &[&str]) -> GenerateOptions {
         features: Some(features.iter().map(|value| (*value).to_owned()).collect()),
         ..GenerateOptions::default()
     }
+}
+
+#[cfg(unix)]
+fn mcp_call(project: &Path, arguments: serde_json::Value) -> serde_json::Value {
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "carabinerTool", "arguments": arguments},
+    });
+    let mut child = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .arg("mcp")
+        .current_dir(project)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    writeln!(stdin, "{}", serde_json::to_string(&request).unwrap()).unwrap();
+    drop(stdin);
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
 }
 
 #[test]
@@ -585,4 +616,358 @@ fn fetch_reports_file_statuses() {
         serde_json::json!(["rules/guide.md"])
     );
     fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn mcp_rejects_symlinked_workspace_paths() {
+    let project = temp_project("mcp-symlink");
+    let outside = temp_project("mcp-symlink-outside");
+    fs::create_dir_all(project.join(".carabiner")).unwrap();
+    std::os::unix::fs::symlink(&outside, project.join(".carabiner/rules")).unwrap();
+
+    let write = mcp_call(
+        &project,
+        serde_json::json!({
+            "feature": "rule",
+            "operation": "put",
+            "targetPathFromCwd": ".carabiner/rules/escape.md",
+            "body": "must not escape",
+        }),
+    );
+    assert_eq!(write["result"]["isError"], true);
+    assert!(!outside.join("escape.md").exists());
+
+    fs::write(outside.join("victim.md"), "must not delete").unwrap();
+    let delete = mcp_call(
+        &project,
+        serde_json::json!({
+            "feature": "rule",
+            "operation": "delete",
+            "targetPathFromCwd": ".carabiner/rules/victim.md",
+        }),
+    );
+    assert_eq!(delete["result"]["isError"], true);
+    assert!(outside.join("victim.md").exists());
+
+    let skill_root = project.join(".carabiner/skills/demo");
+    fs::create_dir_all(&skill_root).unwrap();
+    std::os::unix::fs::symlink(&outside, skill_root.join("nested")).unwrap();
+    let nested_write = mcp_call(
+        &project,
+        serde_json::json!({
+            "feature": "skill",
+            "operation": "put",
+            "targetPathFromCwd": ".carabiner/skills/demo",
+            "frontmatter": {"name": "demo", "description": "demo"},
+            "body": "must not partially write",
+            "otherFiles": [{"name": "nested/escape.txt", "body": "must not escape"}],
+        }),
+    );
+    assert_eq!(nested_write["result"]["isError"], true);
+    assert!(!outside.join("escape.txt").exists());
+    assert!(!skill_root.join("SKILL.md").exists());
+
+    fs::remove_dir_all(project).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[test]
+fn frozen_install_requires_matching_cached_artifacts() {
+    let project = temp_project("frozen-install");
+    let source = project.join("source");
+    fs::create_dir_all(source.join("skills/demo")).unwrap();
+    fs::write(
+        source.join("skills/demo/SKILL.md"),
+        "---\nname: demo\ndescription: Demo\ntargets: [\"*\"]\n---\n\nOriginal\n",
+    )
+    .unwrap();
+    fs::write(
+        project.join("carabiner.jsonc"),
+        serde_json::json!({"sources": [{"source": source, "transport": "git"}]}).to_string(),
+    )
+    .unwrap();
+
+    let install = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .args(["install", "--silent"])
+        .current_dir(&project)
+        .output()
+        .unwrap();
+    assert!(
+        install.status.success(),
+        "{}",
+        String::from_utf8_lossy(&install.stderr)
+    );
+    let lock = fs::read(project.join("carabiner.lock")).unwrap();
+    fs::remove_dir_all(&source).unwrap();
+
+    let cached = project.join(".carabiner/skills/.curated/demo/SKILL.md");
+    let frozen = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .args(["install", "--frozen", "--silent"])
+        .current_dir(&project)
+        .output()
+        .unwrap();
+    assert!(
+        frozen.status.success(),
+        "{}",
+        String::from_utf8_lossy(&frozen.stderr)
+    );
+    assert!(cached.is_file());
+
+    fs::write(&cached, "tampered").unwrap();
+    let tampered = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .args(["install", "--frozen", "--silent"])
+        .current_dir(&project)
+        .output()
+        .unwrap();
+    assert!(!tampered.status.success());
+    assert_eq!(fs::read(project.join("carabiner.lock")).unwrap(), lock);
+
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn frozen_gh_install_requires_matching_cached_artifacts() {
+    let project = temp_project("frozen-gh-install");
+    let source = project.join("source");
+    fs::create_dir_all(source.join("skills/demo")).unwrap();
+    fs::write(
+        source.join("skills/demo/SKILL.md"),
+        "---\nname: demo\ndescription: Demo\ntargets: [\"*\"]\n---\n\nOriginal\n",
+    )
+    .unwrap();
+    fs::write(
+        project.join("carabiner.jsonc"),
+        serde_json::json!({"sources": [{"source": source, "skills": ["*"]}]}).to_string(),
+    )
+    .unwrap();
+
+    let install = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .args(["install", "--mode", "gh", "--silent"])
+        .current_dir(&project)
+        .output()
+        .unwrap();
+    assert!(
+        install.status.success(),
+        "{}",
+        String::from_utf8_lossy(&install.stderr)
+    );
+    let lock = fs::read(project.join("carabiner-gh.lock.yaml")).unwrap();
+    fs::remove_dir_all(&source).unwrap();
+
+    let cached = project.join(".agents/skills/demo/SKILL.md");
+    let frozen = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .args(["install", "--mode", "gh", "--frozen", "--silent"])
+        .current_dir(&project)
+        .output()
+        .unwrap();
+    assert!(
+        frozen.status.success(),
+        "{}",
+        String::from_utf8_lossy(&frozen.stderr)
+    );
+    fs::write(&cached, "tampered").unwrap();
+
+    let tampered = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .args(["install", "--mode", "gh", "--frozen", "--silent"])
+        .current_dir(&project)
+        .output()
+        .unwrap();
+    assert!(!tampered.status.success());
+    assert_eq!(
+        fs::read(project.join("carabiner-gh.lock.yaml")).unwrap(),
+        lock
+    );
+
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn frozen_apm_install_requires_matching_cached_artifacts() {
+    let project = temp_project("frozen-apm-install");
+    let source = project.join("source");
+    fs::create_dir_all(source.join(".apm/instructions")).unwrap();
+    fs::create_dir_all(source.join(".apm/skills/demo")).unwrap();
+    fs::write(source.join(".apm/instructions/guide.md"), "Original\n").unwrap();
+    fs::write(
+        source.join(".apm/skills/demo/SKILL.md"),
+        "---\nname: demo\ndescription: Demo\ntargets: [\"*\"]\n---\n\nOriginal\n",
+    )
+    .unwrap();
+    fs::write(
+        project.join("apm.yml"),
+        format!("dependencies:\n  apm:\n    - git: {}\n", source.display()),
+    )
+    .unwrap();
+
+    let install = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .args(["install", "--mode", "apm", "--silent"])
+        .current_dir(&project)
+        .output()
+        .unwrap();
+    assert!(
+        install.status.success(),
+        "{}",
+        String::from_utf8_lossy(&install.stderr)
+    );
+    let lock = fs::read(project.join("carabiner-apm.lock.yaml")).unwrap();
+    fs::remove_dir_all(&source).unwrap();
+
+    let cached = project.join(".github/instructions/guide.md");
+    let frozen = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .args(["install", "--mode", "apm", "--frozen", "--silent"])
+        .current_dir(&project)
+        .output()
+        .unwrap();
+    assert!(
+        frozen.status.success(),
+        "{}",
+        String::from_utf8_lossy(&frozen.stderr)
+    );
+    fs::write(&cached, "tampered").unwrap();
+
+    let tampered = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .args(["install", "--mode", "apm", "--frozen", "--silent"])
+        .current_dir(&project)
+        .output()
+        .unwrap();
+    assert!(!tampered.status.success());
+    assert_eq!(
+        fs::read(project.join("carabiner-apm.lock.yaml")).unwrap(),
+        lock
+    );
+
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn frozen_npm_install_requires_matching_cached_artifacts() {
+    let project = temp_project("frozen-npm-install");
+    let cached = project.join(".carabiner/skills/.curated/demo/SKILL.md");
+    fs::create_dir_all(cached.parent().unwrap()).unwrap();
+    fs::write(
+        &cached,
+        "---\nname: demo\ndescription: Demo\ntargets: [\"*\"]\n---\n\nOriginal\n",
+    )
+    .unwrap();
+    fs::write(
+        project.join("carabiner.jsonc"),
+        serde_json::json!({"sources": [{"source": "demo", "transport": "npm"}]}).to_string(),
+    )
+    .unwrap();
+    let lock = serde_json::json!({
+        "lockfileVersion": 1,
+        "sources": {
+            "demo": {
+                "resolvedVersion": "1.0.0",
+                "integrity": "sha512-fixture",
+                "skills": {
+                    "demo": {
+                        "integrity": "sha256-2cbff3914af684b2bddb9deb708349cc13f9fa82beba086804513ede7bdd21a8"
+                    }
+                }
+            }
+        }
+    });
+    fs::write(
+        project.join("carabiner-npm.lock.json"),
+        serde_json::to_string_pretty(&lock).unwrap(),
+    )
+    .unwrap();
+
+    let frozen = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .args(["install", "--frozen", "--silent"])
+        .current_dir(&project)
+        .output()
+        .unwrap();
+    assert!(
+        frozen.status.success(),
+        "{}",
+        String::from_utf8_lossy(&frozen.stderr)
+    );
+
+    fs::write(&cached, "tampered").unwrap();
+    let tampered = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .args(["install", "--frozen", "--silent"])
+        .current_dir(&project)
+        .output()
+        .unwrap();
+    assert!(!tampered.status.success());
+
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn installs_file_url_git_source() {
+    let project = temp_project("file-url-install");
+    let source = project.join("source");
+    fs::create_dir_all(source.join("skills/demo")).unwrap();
+    fs::write(
+        source.join("skills/demo/SKILL.md"),
+        "---\nname: demo\ndescription: Demo\ntargets: [\"*\"]\n---\n\nFile URL\n",
+    )
+    .unwrap();
+    let run_git = |arguments: &[&str]| {
+        let output = Command::new("git")
+            .args(arguments)
+            .current_dir(&source)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    run_git(&["init"]);
+    run_git(&["config", "user.email", "test@example.invalid"]);
+    run_git(&["config", "user.name", "Test"]);
+    run_git(&["add", "."]);
+    run_git(&["-c", "commit.gpgsign=false", "commit", "-m", "initial"]);
+    let source_url = format!(
+        "file://{}",
+        source
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/")
+    );
+    fs::write(
+        project.join("carabiner.jsonc"),
+        serde_json::json!({"sources": [{"source": source_url, "transport": "git"}]}).to_string(),
+    )
+    .unwrap();
+
+    let install = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .args(["install", "--silent"])
+        .current_dir(&project)
+        .output()
+        .unwrap();
+    assert!(
+        install.status.success(),
+        "{}",
+        String::from_utf8_lossy(&install.stderr)
+    );
+    assert!(project
+        .join(".carabiner/skills/.curated/demo/SKILL.md")
+        .is_file());
+
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn atomic_text_writes_replace_content_without_temporary_files() {
+    let project = temp_project("atomic-write");
+    let path = project.join("settings.json");
+    assert!(write_text(&path, "first", false).unwrap());
+    assert!(write_text(&path, "second", false).unwrap());
+    assert!(!write_text(&path, "second", false).unwrap());
+    assert_eq!(fs::read_to_string(&path).unwrap(), "second\n");
+    assert!(fs::read_dir(&project).unwrap().all(|entry| !entry
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .starts_with(".carabiner-write-")));
+    fs::remove_dir_all(project).unwrap();
 }

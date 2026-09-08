@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use carabiner::config::{Config, ConfigOptions};
 use carabiner::engine::{
     convert_from_tool, export_canonical_to_tool_directory, generate, import_from_tool,
@@ -12,14 +13,18 @@ use carabiner::util::{
     write_bytes, write_text, write_text_raw,
 };
 use clap::{ArgAction, Args, Parser, Subcommand};
+use flate2::read::GzDecoder;
 use serde_json::{json, Map, Value};
+use sha1::Sha1;
+use sha2::{Digest, Sha256, Sha384, Sha512};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{self, BufRead, IsTerminal, Write};
+use std::io::{self, BufRead, Cursor, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 static WATCH_STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+const DEFAULT_UPDATE_REPOSITORY: &str = "findyourexit/carabiner";
 
 #[cfg(unix)]
 extern "C" fn watch_signal_handler(_: libc::c_int) {
@@ -2438,6 +2443,13 @@ fn fetch_command(options: &FetchCli) -> Result<Value> {
     Ok(Value::Object(data))
 }
 
+fn is_git_remote_url(value: &str) -> bool {
+    value.starts_with("file://")
+        || value.starts_with("ssh://")
+        || value.starts_with("git://")
+        || (value.starts_with("git@") && value.contains(':'))
+}
+
 fn parse_fetch_remote_source(source: &str) -> Result<(String, Option<String>, Option<String>)> {
     let mut value = source.trim().to_owned();
     if let Some(rest) = value.strip_prefix("github:") {
@@ -2478,6 +2490,10 @@ fn parse_fetch_remote_source(source: &str) -> Result<(String, Option<String>, Op
         }
         return Ok((value, None, None));
     }
+    if is_git_remote_url(&value) {
+        return Ok((value, None, None));
+    }
+
     let mut inferred_path = None;
     if let Some((repo, path)) = value.split_once(':') {
         if !path.is_empty() {
@@ -2698,7 +2714,7 @@ fn fetch_source_internal(
         if let Some(reference) = inferred_ref.as_deref() {
             command.arg("--branch").arg(reference);
         }
-        command.arg(&url).arg(&temp);
+        command.arg("--").arg(&url).arg(&temp);
         let status = command.status().context("failed to start git")?;
         if !status.success() {
             let _ = fs::remove_dir_all(&temp);
@@ -3090,32 +3106,7 @@ fn write_sources_lock(path: &Path, sources: &Map<String, Value>) -> Result<()> {
 }
 
 fn sha256_bytes(content: &[u8]) -> String {
-    let mut command = Command::new("shasum");
-    command.args(["-a", "256"]);
-    let output = command
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .and_then(|mut child| {
-            if let Some(mut stdin) = child.stdin.take() {
-                use std::io::Write as _;
-                stdin.write_all(content)?;
-            }
-            child.wait_with_output()
-        });
-    if let Ok(output) = output {
-        if output.status.success() {
-            if let Some(hash) = String::from_utf8_lossy(&output.stdout)
-                .split_whitespace()
-                .next()
-            {
-                if hash.len() == 64 {
-                    return format!("sha256-{hash}");
-                }
-            }
-        }
-    }
-    "sha256-".to_owned() + &"0".repeat(64)
+    format!("sha256-{:x}", Sha256::digest(content))
 }
 
 fn git_revision(source: &str, requested_ref: Option<&str>) -> String {
@@ -3368,11 +3359,55 @@ fn source_lock_entry(
     Ok(Value::Object(entry))
 }
 
+fn source_lock_artifacts_match(entry: &Value, curated_skills: &Path, curated_rules: &Path) -> bool {
+    let Some(entry) = entry.as_object() else {
+        return false;
+    };
+    let Some(skills) = entry.get("skills").and_then(Value::as_object) else {
+        return false;
+    };
+    for (name, expected) in skills {
+        if safe_name(name).is_err()
+            || source_lock_skill_entry(&curated_skills.join(name))
+                .ok()
+                .as_ref()
+                != Some(expected)
+        {
+            return false;
+        }
+    }
+    let Some(rules) = entry.get("rules") else {
+        return true;
+    };
+    let Some(rules) = rules.as_object() else {
+        return false;
+    };
+    let Ok(actual) = source_lock_rules(curated_rules, None) else {
+        return false;
+    };
+    rules.iter().all(|(name, expected)| {
+        safe_relative_path(&format!("{name}.md")).is_ok() && actual.get(name) == Some(expected)
+    })
+}
+
 fn read_npm_lock(path: &Path) -> Map<String, Value> {
     read_jsonc(path)
         .ok()
         .and_then(|value| value.get("sources").and_then(Value::as_object).cloned())
         .unwrap_or_default()
+}
+
+fn npm_lock_artifacts_match(entry: &Value, curated_skills: &Path, curated_rules: &Path) -> bool {
+    entry.as_object().is_some_and(|entry| {
+        entry
+            .get("resolvedVersion")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.is_empty())
+            && entry
+                .get("integrity")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.is_empty())
+    }) && source_lock_artifacts_match(entry, curated_skills, curated_rules)
 }
 
 fn write_npm_lock(path: &Path, sources: &Map<String, Value>) -> Result<()> {
@@ -3423,15 +3458,101 @@ fn url_origin(url: &str) -> Option<String> {
     Some(format!("{}://{authority}", scheme.to_ascii_lowercase()))
 }
 
+fn npm_registry_origin(registry: &str) -> Result<String> {
+    let origin = url_origin(registry)
+        .filter(|origin| origin.starts_with("https://"))
+        .ok_or_else(|| anyhow!("npm registry must be an https URL"))?;
+    let authority = origin.trim_start_matches("https://");
+    if authority.is_empty() || authority.contains('@') || authority.chars().any(char::is_control) {
+        return Err(anyhow!("npm registry URL is invalid"));
+    }
+    Ok(origin)
+}
+
+fn npm_registry_is_trusted(registry: &str) -> bool {
+    let Ok(origin) = npm_registry_origin(registry) else {
+        return false;
+    };
+    origin == "https://registry.npmjs.org"
+        || std::env::var("CARABINER_NPM_TRUSTED_REGISTRIES")
+            .ok()
+            .is_some_and(|values| {
+                values
+                    .split(',')
+                    .map(str::trim)
+                    .filter_map(url_origin)
+                    .any(|allowed| allowed == origin)
+            })
+}
+
+fn npm_token_env_is_allowed(token_env: &str) -> bool {
+    token_env == "NPM_TOKEN"
+        || std::env::var("CARABINER_NPM_TOKEN_ENV_ALLOWLIST")
+            .ok()
+            .is_some_and(|values| {
+                values
+                    .split(',')
+                    .map(str::trim)
+                    .any(|allowed| allowed == token_env)
+            })
+}
+
+fn npm_token(
+    object: &Map<String, Value>,
+    options: &InstallCli,
+    registry: &str,
+) -> Result<Option<String>> {
+    let token = if let Some(token_env) = object.get("tokenEnv").and_then(Value::as_str) {
+        if !npm_token_env_is_allowed(token_env) {
+            return Err(anyhow!(
+                "npm tokenEnv '{token_env}' is not locally allowlisted. Add it to CARABINER_NPM_TOKEN_ENV_ALLOWLIST before installing this source."
+            ));
+        }
+        let value = std::env::var(token_env)
+            .ok()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                anyhow!("Environment variable '{token_env}' (from tokenEnv) is not set.")
+            })?;
+        Some(value)
+    } else {
+        options.token.clone().or_else(|| {
+            std::env::var("NPM_TOKEN")
+                .ok()
+                .filter(|value| !value.is_empty())
+        })
+    };
+    if token.is_some() && !npm_registry_is_trusted(registry) {
+        return Err(anyhow!(
+            "Refusing to send an npm token to untrusted registry '{registry}'. Add its HTTPS origin to CARABINER_NPM_TRUSTED_REGISTRIES to opt in."
+        ));
+    }
+    Ok(token)
+}
+
 fn npm_request(url: &str, token: Option<&str>, accept: &str) -> Result<Vec<u8>> {
+    if !url.starts_with("https://") {
+        return Err(anyhow!("npm requests must use https: {url}"));
+    }
     let mut command = Command::new("curl");
     command.args([
-        "-sSL",
+        "-sS",
+        "--proto",
+        "=https",
+        "--proto-redir",
+        "=https",
+        "--connect-timeout",
+        "15",
+        "--max-time",
+        "300",
         "-H",
         &format!("Accept: {accept}"),
         "-w",
         "%{http_code}",
     ]);
+    if token.is_none() {
+        command.arg("--location");
+    }
     if let Some(token) = token {
         command.args(["-H", &format!("Authorization: Bearer {token}")]);
     }
@@ -3450,82 +3571,61 @@ fn npm_request(url: &str, token: Option<&str>, accept: &str) -> Result<Vec<u8>> 
     if !output.status.success() || status >= 400 {
         if status == 401 || status == 403 {
             return Err(anyhow!(
-                "HTTP {status} for {url}. Check tokenEnv or NPM_TOKEN."
+                "HTTP {status} for {url}. Check the configured npm token."
             ));
         }
         return Err(anyhow!("HTTP {status} for {url}"));
     }
+    if status >= 300 {
+        return Err(anyhow!(
+            "Refusing redirect from authenticated npm request to {url}"
+        ));
+    }
     Ok(output.stdout[..status_start].to_vec())
 }
 
-fn npm_integrity(path: &Path, integrity: &str) -> Result<()> {
-    if integrity.is_empty() {
-        return Ok(());
+fn decode_hex(value: &str) -> Option<Vec<u8>> {
+    if value.len() % 2 != 0 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
     }
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let high = (pair[0] as char).to_digit(16)? as u8;
+            let low = (pair[1] as char).to_digit(16)? as u8;
+            Some(high * 16 + low)
+        })
+        .collect()
+}
+
+fn npm_digest(algorithm: &str, content: &[u8]) -> Result<Vec<u8>> {
+    match algorithm {
+        "sha1" => Ok(Sha1::digest(content).to_vec()),
+        "sha256" => Ok(Sha256::digest(content).to_vec()),
+        "sha384" => Ok(Sha384::digest(content).to_vec()),
+        "sha512" => Ok(Sha512::digest(content).to_vec()),
+        _ => Err(anyhow!("Unsupported npm integrity algorithm '{algorithm}'")),
+    }
+}
+
+fn npm_integrity(content: &[u8], integrity: &str) -> Result<()> {
     let (algorithm, expected) = integrity
         .split_once('-')
         .ok_or_else(|| anyhow!("Invalid npm integrity value"))?;
-    if !matches!(algorithm, "sha512" | "sha384" | "sha256" | "sha1") {
-        return Err(anyhow!("Unsupported npm integrity algorithm '{algorithm}'"));
-    }
-    if expected.len() == if algorithm == "sha1" { 40 } else { 64 }
-        && expected.chars().all(|value| value.is_ascii_hexdigit())
+    let actual = npm_digest(algorithm, content)?;
+    let expected = if expected.len() == actual.len() * 2
+        && expected.bytes().all(|byte| byte.is_ascii_hexdigit())
     {
-        let bits = match algorithm {
-            "sha1" => "1",
-            "sha256" => "256",
-            "sha384" => "384",
-            _ => "512",
-        };
-        let output = Command::new("shasum")
-            .args(["-a", bits, path.to_string_lossy().as_ref()])
-            .output()
-            .context("failed to start shasum")?;
-        let actual = String::from_utf8_lossy(&output.stdout)
-            .split_whitespace()
-            .next()
-            .unwrap_or("")
-            .to_owned();
-        if !output.status.success() || !actual.eq_ignore_ascii_case(expected) {
-            return Err(anyhow!(
-                "Integrity verification failed for npm tarball {}",
-                path.display()
-            ));
-        }
-        return Ok(());
-    }
-    let digest_argument = format!("-{algorithm}");
-    let digest = Command::new("openssl")
-        .args([
-            "dgst",
-            &digest_argument,
-            "-binary",
-            path.to_string_lossy().as_ref(),
-        ])
-        .output()
-        .context("failed to start openssl")?;
-    if !digest.status.success() {
-        return Err(anyhow!("failed to calculate npm tarball integrity"));
-    }
-    let encoded = Command::new("base64")
-        .arg("-b")
-        .arg("0")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .and_then(|mut child| {
-            if let Some(mut stdin) = child.stdin.take() {
-                use std::io::Write as _;
-                stdin.write_all(&digest.stdout)?;
-            }
-            child.wait_with_output()
-        })?;
-    let actual = String::from_utf8_lossy(&encoded.stdout).trim().to_owned();
+        decode_hex(expected).ok_or_else(|| anyhow!("Invalid npm integrity value"))?
+    } else {
+        STANDARD
+            .decode(expected)
+            .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(expected))
+            .map_err(|_| anyhow!("Invalid npm integrity value"))?
+    };
     if actual != expected {
-        return Err(anyhow!(
-            "Integrity verification failed for npm tarball {}",
-            path.display()
-        ));
+        return Err(anyhow!("Integrity verification failed for npm tarball"));
     }
     Ok(())
 }
@@ -3535,11 +3635,92 @@ fn npm_package_url(registry: &str, package: &str) -> String {
     format!("{}/{}", registry.trim_end_matches('/'), encoded)
 }
 
-fn safe_archive_member(name: &str) -> bool {
-    let normalized = name.replace('\\', "/");
-    !normalized.starts_with('/')
-        && !normalized.split('/').any(|segment| segment == "..")
-        && !normalized.contains('\0')
+const MAX_NPM_ARCHIVE_FILES: usize = 10_000;
+const MAX_NPM_ARCHIVE_BYTES: u64 = 100 * 1024 * 1024;
+const MAX_NPM_ARCHIVE_DEPTH: usize = 32;
+
+fn npm_archive_member_path(path: &Path) -> Result<PathBuf> {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::Normal(name) if !name.to_string_lossy().contains('\\') => {
+                normalized.push(name)
+            }
+            _ => {
+                return Err(anyhow!(
+                    "npm package contains unsafe archive path {}",
+                    path.display()
+                ))
+            }
+        }
+    }
+    if normalized.as_os_str().is_empty() || normalized.components().count() > MAX_NPM_ARCHIVE_DEPTH
+    {
+        return Err(anyhow!(
+            "npm package contains unsafe archive path {}",
+            path.display()
+        ));
+    }
+    Ok(normalized)
+}
+
+fn extract_npm_tarball(tarball: &[u8], staging: &Path) -> Result<()> {
+    let mut archive = tar::Archive::new(GzDecoder::new(Cursor::new(tarball)));
+    let entries = archive.entries().context("invalid npm package tarball")?;
+    let mut extracted_files = 0usize;
+    let mut extracted_bytes = 0u64;
+    let mut paths = HashSet::new();
+    for entry in entries {
+        let mut entry = entry.context("invalid npm package tarball")?;
+        let path = npm_archive_member_path(&entry.path()?)?;
+        let entry_type = entry.header().entry_type();
+        if entry_type.is_dir() {
+            continue;
+        }
+        if !entry_type.is_file() {
+            return Err(anyhow!(
+                "npm package contains unsupported archive entry {}",
+                path.display()
+            ));
+        }
+        extracted_files += 1;
+        if extracted_files > MAX_NPM_ARCHIVE_FILES {
+            return Err(anyhow!("npm package exceeds {MAX_NPM_ARCHIVE_FILES} files"));
+        }
+        let size = entry.size();
+        extracted_bytes = extracted_bytes
+            .checked_add(size)
+            .filter(|total| *total <= MAX_NPM_ARCHIVE_BYTES)
+            .ok_or_else(|| {
+                anyhow!("npm package exceeds {MAX_NPM_ARCHIVE_BYTES} extracted bytes")
+            })?;
+        if !paths.insert(path.clone()) {
+            return Err(anyhow!(
+                "npm package contains duplicate archive path {}",
+                path.display()
+            ));
+        }
+        let target = staging.join(&path);
+        assert_no_symlink_path(staging, &target)?;
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut output = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&target)
+            .with_context(|| format!("failed to extract {}", target.display()))?;
+        let copied = io::copy(&mut entry, &mut output)?;
+        if copied != size {
+            return Err(anyhow!(
+                "npm package has truncated archive entry {}",
+                path.display()
+            ));
+        }
+        output.flush()?;
+    }
+    Ok(())
 }
 
 fn npm_shasum_to_sri(shasum: &str) -> Result<String> {
@@ -3577,22 +3758,8 @@ fn install_npm_source(
         .get("registry")
         .and_then(Value::as_str)
         .unwrap_or("https://registry.npmjs.org");
-    if !registry.starts_with("https://") && !registry.starts_with("http://") {
-        return Err(anyhow!("registry must be an http(s) URL"));
-    }
-    let token = if let Some(token_env) = object.get("tokenEnv").and_then(Value::as_str) {
-        let value = std::env::var(token_env)
-            .ok()
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| anyhow!("Environment variable \"{token_env}\" (from tokenEnv) is not set. Export it or remove the tokenEnv field."))?;
-        Some(value)
-    } else {
-        options.token.clone().or_else(|| {
-            std::env::var("NPM_TOKEN")
-                .ok()
-                .filter(|value| !value.is_empty())
-        })
-    };
+    npm_registry_origin(registry)?;
+    let token = npm_token(object, options, registry)?;
     let packument_url = npm_package_url(registry, source);
     let packument: Value = serde_json::from_slice(&npm_request(
         &packument_url,
@@ -3640,41 +3807,35 @@ fn install_npm_source(
         .get("tarball")
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("npm package '{source}' has no tarball URL"))?;
-    if !tarball_url.starts_with("https://") && !tarball_url.starts_with("http://") {
+    if !tarball_url.starts_with("https://") || url_origin(tarball_url).is_none() {
         return Err(anyhow!(
-            "Unsupported tarball URL: \"{tarball_url}\". Use https:// (or http://)."
+            "Unsupported tarball URL: \"{tarball_url}\". Use HTTPS."
         ));
     }
-    let tarball = project_root.join(format!(
-        ".carabiner-npm-{}-{}.tgz",
-        std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    ));
-    let mut temporary_cleanup = TempDirGuard::new(Some(tarball.clone()));
     let tarball_token = (url_origin(tarball_url) == url_origin(&packument_url))
         .then_some(token.as_deref())
         .flatten();
     let bytes = npm_request(tarball_url, tarball_token, "*/*")?;
-    if bytes.len() > 100 * 1024 * 1024 {
-        return Err(anyhow!("npm tarball exceeds maximum 100MB size"));
+    if bytes.len() as u64 > MAX_NPM_ARCHIVE_BYTES {
+        return Err(anyhow!(
+            "npm tarball exceeds {MAX_NPM_ARCHIVE_BYTES} compressed bytes"
+        ));
     }
-    write_bytes(&tarball, &bytes, false)?;
     let declared_integrity = dist.get("integrity").and_then(Value::as_str);
     let declared_shasum = dist.get("shasum").and_then(Value::as_str);
-    if let Some(integrity) = declared_integrity {
-        npm_integrity(&tarball, integrity)?;
-    } else if let Some(shasum) = declared_shasum {
-        npm_integrity(&tarball, &format!("sha1-{shasum}"))?;
-    }
-    let integrity = if let Some(value) = declared_integrity {
-        value.to_owned()
-    } else if let Some(value) = declared_shasum {
-        npm_shasum_to_sri(value)?
-    } else {
-        String::new()
+    let integrity = match (declared_integrity, declared_shasum) {
+        (Some(integrity), _) => {
+            npm_integrity(&bytes, integrity)?;
+            integrity.to_owned()
+        }
+        (None, Some(shasum)) => {
+            let integrity = npm_shasum_to_sri(shasum)?;
+            npm_integrity(&bytes, &integrity)?;
+            integrity
+        }
+        (None, None) => {
+            return Err(anyhow!("npm package '{source}' has no integrity metadata"));
+        }
     };
     let staging = project_root.join(format!(
         ".carabiner-npm-extract-{}-{}",
@@ -3684,40 +3845,9 @@ fn install_npm_source(
             .unwrap_or_default()
             .as_nanos()
     ));
-    temporary_cleanup.add(staging.clone());
-    fs::create_dir_all(&staging)?;
-    let listing = Command::new("tar")
-        .args(["-tzf", tarball.to_string_lossy().as_ref()])
-        .output()
-        .context("failed to start tar")?;
-    if !listing.status.success() {
-        let _ = fs::remove_file(&tarball);
-        let _ = fs::remove_dir_all(&staging);
-        return Err(anyhow!("invalid npm package tarball"));
-    }
-    for member in String::from_utf8_lossy(&listing.stdout).lines() {
-        if !safe_archive_member(member) {
-            let _ = fs::remove_file(&tarball);
-            let _ = fs::remove_dir_all(&staging);
-            return Err(anyhow!(
-                "npm package contains an unsafe archive path '{member}'"
-            ));
-        }
-    }
-    let extracted = Command::new("tar")
-        .args([
-            "-xzf",
-            tarball.to_string_lossy().as_ref(),
-            "-C",
-            staging.to_string_lossy().as_ref(),
-        ])
-        .status()
-        .context("failed to start tar")?;
-    if !extracted.success() {
-        let _ = fs::remove_file(&tarball);
-        let _ = fs::remove_dir_all(&staging);
-        return Err(anyhow!("failed to extract npm package"));
-    }
+    fs::create_dir(&staging)?;
+    let _temporary_cleanup = TempDirGuard::new(Some(staging.clone()));
+    extract_npm_tarball(&bytes, &staging)?;
     let package_root = if staging.join("package").is_dir() {
         staging.join("package")
     } else {
@@ -3852,10 +3982,7 @@ fn install_npm_source(
         "requestedVersion".into(),
         Value::String(requested_version.unwrap_or("latest").to_owned()),
     );
-    if !integrity.is_empty() {
-        lock.insert("integrity".into(), Value::String(integrity.to_owned()));
-    }
-    let _ = fs::remove_file(&tarball);
+    lock.insert("integrity".into(), Value::String(integrity));
     let _ = fs::remove_dir_all(&staging);
     Ok((skills, rules, Value::Object(lock)))
 }
@@ -3959,36 +4086,29 @@ fn install_carabiner_sources(options: &InstallCli) -> Result<Value> {
             let key = source.trim().to_owned();
             let lock_entry = npm_lock_sources.get(&key).cloned();
             let lock_complete = lock_entry.as_ref().is_some_and(|entry| {
-                let Some(entry) = entry.as_object() else {
-                    return false;
-                };
-                let skills_ok = entry
-                    .get("skills")
-                    .and_then(Value::as_object)
-                    .map(|skills| skills.keys().all(|name| curated_skills.join(name).is_dir()))
-                    .unwrap_or(false);
-                let rules_ok = entry
-                    .get("rules")
-                    .and_then(Value::as_object)
-                    .map(|rules| {
-                        rules
-                            .keys()
-                            .all(|name| curated_rules.join(format!("{name}.md")).is_file())
-                    })
-                    .unwrap_or(true);
-                skills_ok && rules_ok
+                npm_lock_artifacts_match(entry, &curated_skills, &curated_rules)
             });
+            if options.frozen {
+                let Some(entry) = lock_entry.as_ref() else {
+                    return Err(anyhow!(
+                        "Frozen install failed: npm lockfile is missing entries for: {source}. Run 'carabiner install' to update the lockfile."
+                    ));
+                };
+                if !lock_complete {
+                    return Err(anyhow!(
+                        "Frozen install failed: cached artifacts do not match the npm lockfile for: {source}. Run 'carabiner install' to restore them."
+                    ));
+                }
+                owned_skill_names.extend(lock_entry_names(entry, "skills"));
+                owned_rule_names.extend(lock_entry_names(entry, "rules"));
+                continue;
+            }
             if lock_complete && !options.update {
                 if let Some(entry) = lock_entry.as_ref() {
                     owned_skill_names.extend(lock_entry_names(entry, "skills"));
                     owned_rule_names.extend(lock_entry_names(entry, "rules"));
                 }
                 continue;
-            }
-            if options.frozen && lock_entry.is_none() {
-                return Err(anyhow!(
-                    "Frozen install failed: npm lockfile is missing entries for: {source}. Run 'carabiner install' to update the lockfile."
-                ));
             }
             match install_npm_source(
                 object,
@@ -4034,36 +4154,29 @@ fn install_carabiner_sources(options: &InstallCli) -> Result<Value> {
                 .and_then(Value::as_str)
         });
         let lock_complete = lock_entry.as_ref().is_some_and(|entry| {
-            let Some(entry) = entry.as_object() else {
-                return false;
-            };
-            let skills_ok = entry
-                .get("skills")
-                .and_then(Value::as_object)
-                .map(|skills| skills.keys().all(|name| curated_skills.join(name).is_dir()))
-                .unwrap_or(false);
-            let rules_ok = entry
-                .get("rules")
-                .and_then(Value::as_object)
-                .map(|rules| {
-                    rules
-                        .keys()
-                        .all(|name| curated_rules.join(format!("{name}.md")).is_file())
-                })
-                .unwrap_or(true);
-            skills_ok && rules_ok
+            source_lock_artifacts_match(entry, &curated_skills, &curated_rules)
         });
+        if options.frozen {
+            let Some(entry) = lock_entry.as_ref() else {
+                return Err(anyhow!(
+                    "Frozen install failed: lockfile is missing entries for: {source}. Run 'carabiner install' to update the lockfile."
+                ));
+            };
+            if !lock_complete {
+                return Err(anyhow!(
+                    "Frozen install failed: cached artifacts do not match the lockfile for: {source}. Run 'carabiner install' to restore them."
+                ));
+            }
+            owned_skill_names.extend(lock_entry_names(entry, "skills"));
+            owned_rule_names.extend(lock_entry_names(entry, "rules"));
+            continue;
+        }
         if lock_complete && !options.update {
             if let Some(entry) = lock_entry.as_ref() {
                 owned_skill_names.extend(lock_entry_names(entry, "skills"));
                 owned_rule_names.extend(lock_entry_names(entry, "rules"));
             }
             continue;
-        }
-        if options.frozen && lock_entry.is_none() {
-            return Err(anyhow!(
-                "Frozen install failed: lockfile is missing entries for: {source}. Run 'carabiner install' to update the lockfile."
-            ));
         }
         let staging = std::env::temp_dir().join(format!(
             "carabiner-install-{}-{}",
@@ -4283,6 +4396,38 @@ fn copy_gh_skill(
     ))
 }
 
+fn locked_deployed_files_match(installation: &serde_yaml::Value, scope_root: &Path) -> bool {
+    let Some(files) = installation
+        .get("deployed_files")
+        .and_then(serde_yaml::Value::as_sequence)
+    else {
+        return false;
+    };
+    let Some(expected) = installation
+        .get("content_hash")
+        .and_then(serde_yaml::Value::as_str)
+    else {
+        return false;
+    };
+    let mut payload = Vec::new();
+    for file in files {
+        let Some(relative) = file.as_str() else {
+            return false;
+        };
+        if safe_relative_path(relative).is_err() {
+            return false;
+        }
+        let Ok(content) = fs::read(scope_root.join(relative)) else {
+            return false;
+        };
+        payload.extend_from_slice(relative.as_bytes());
+        payload.push(0);
+        payload.extend_from_slice(&content);
+        payload.push(0);
+    }
+    sha256_bytes(&payload).replacen("sha256-", "sha256:", 1) == expected
+}
+
 fn install_gh_command(options: &InstallCli) -> Result<Value> {
     let project_root = std::env::current_dir()?;
     let config = Config::resolve(&ConfigOptions {
@@ -4363,29 +4508,6 @@ fn install_gh_command(options: &InstallCli) -> Result<Value> {
         let install_dir = gh_relative_install_dir(agent, scope)?;
         let selected = source_string_list(entry, "skills");
         let requested_ref = entry.get("ref").and_then(Value::as_str);
-        let source_info = parse_fetch_remote_source(source);
-        let (repository, parsed_ref) = if let Ok((url, parsed_ref, _)) = &source_info {
-            let repository = url
-                .trim_start_matches("https://github.com/")
-                .trim_start_matches("http://github.com/")
-                .trim_end_matches(".git")
-                .to_owned();
-            (repository, parsed_ref.clone())
-        } else if Path::new(source).is_dir() {
-            (
-                format!(
-                    "local/{}",
-                    Path::new(source)
-                        .file_name()
-                        .and_then(|v| v.to_str())
-                        .unwrap_or("source")
-                ),
-                None,
-            )
-        } else {
-            return Err(source_info.expect_err("source_info is Err in this branch"));
-        };
-        let resolved_requested_ref = requested_ref.or(parsed_ref.as_deref());
         let matching = |skill: Option<&str>| {
             existing_installations.iter().find(|installation| {
                 let Some(object) = installation.as_mapping() else {
@@ -4427,36 +4549,57 @@ fn install_gh_command(options: &InstallCli) -> Result<Value> {
         } else {
             project_root.clone()
         };
-        let locked_files_exist = |installation: &serde_yaml::Value| {
-            installation
-                .get("deployed_files")
-                .and_then(serde_yaml::Value::as_sequence)
-                .map(|files| {
-                    files.iter().all(|file| {
-                        file.as_str()
-                            .map(|file| scope_root.join(file).is_file())
-                            .unwrap_or(false)
-                    })
-                })
-                .unwrap_or(false)
+        let locked_files_match = |installation: &serde_yaml::Value| {
+            locked_deployed_files_match(installation, &scope_root)
         };
-        if !options.update
-            && !locked_for_source.is_empty()
+        let lock_complete = !locked_for_source.is_empty()
             && selected_names.is_none_or(|names| {
                 names
                     .iter()
-                    .all(|name| matching(Some(name)).is_some_and(locked_files_exist))
+                    .all(|name| matching(Some(name)).is_some_and(locked_files_match))
             })
-            && locked_for_source.iter().all(locked_files_exist)
-        {
+            && locked_for_source.iter().all(locked_files_match);
+        if options.frozen {
+            if locked_for_source.is_empty() {
+                return Err(anyhow!(
+                    "Frozen install failed: carabiner-gh.lock.yaml is missing entries for: {source} (agent={agent}, scope={scope}). Run 'carabiner install --mode gh' to update the lockfile."
+                ));
+            }
+            if !lock_complete {
+                return Err(anyhow!(
+                    "Frozen install failed: cached artifacts do not match the lockfile for: {source} (agent={agent}, scope={scope}). Run 'carabiner install --mode gh' to restore them."
+                ));
+            }
             installations.extend(locked_for_source);
             continue;
         }
-        if options.frozen && locked_for_source.is_empty() {
-            return Err(anyhow!(
-                "Frozen install failed: carabiner-gh.lock.yaml is missing entries for: {source} (agent={agent}, scope={scope}). Run 'carabiner install --mode gh' to update the lockfile."
-            ));
+        if !options.update && lock_complete {
+            installations.extend(locked_for_source);
+            continue;
         }
+        let source_info = parse_fetch_remote_source(source);
+        let (repository, parsed_ref) = if let Ok((url, parsed_ref, _)) = &source_info {
+            let repository = url
+                .trim_start_matches("https://github.com/")
+                .trim_start_matches("http://github.com/")
+                .trim_end_matches(".git")
+                .to_owned();
+            (repository, parsed_ref.clone())
+        } else if Path::new(source).is_dir() {
+            (
+                format!(
+                    "local/{}",
+                    Path::new(source)
+                        .file_name()
+                        .and_then(|v| v.to_str())
+                        .unwrap_or("source")
+                ),
+                None,
+            )
+        } else {
+            return Err(source_info.expect_err("source_info is Err in this branch"));
+        };
+        let resolved_requested_ref = requested_ref.or(parsed_ref.as_deref());
         let staging = std::env::temp_dir().join(format!(
             "carabiner-gh-{}-{}",
             std::process::id(),
@@ -4736,7 +4879,7 @@ fn clone_apm_source(
     if let Some(reference) = requested_ref {
         command.arg("--branch").arg(reference);
     }
-    command.arg(&url).arg(&temp);
+    command.arg("--").arg(&url).arg(&temp);
     let status = command.status().context("failed to start git")?;
     if !status.success() {
         let _ = fs::remove_dir_all(&temp);
@@ -4775,6 +4918,18 @@ fn copy_apm_primitive(
         let _ = relative_string;
     }
     Ok((count, paths, hash_input))
+}
+
+fn apm_lock_entry<'a>(
+    entries: &'a [serde_yaml::Value],
+    source: &str,
+) -> Option<&'a serde_yaml::Value> {
+    entries.iter().find(|entry| {
+        entry
+            .get("repo_url")
+            .and_then(serde_yaml::Value::as_str)
+            .is_some_and(|value| normalized_source_key(value) == normalized_source_key(source))
+    })
 }
 
 fn install_apm_manifest(options: &InstallCli) -> Result<Value> {
@@ -4816,23 +4971,14 @@ fn install_apm_manifest(options: &InstallCli) -> Result<Value> {
             ));
         }
         for (source, _, _) in &dependencies {
-            let canonical = if let Ok((_, _, url)) = clone_apm_source(source, None) {
-                url
-            } else {
-                source.clone()
-            };
-            if !existing_entries.iter().any(|entry| {
-                entry
-                    .get("repo_url")
-                    .and_then(serde_yaml::Value::as_str)
-                    .map(|value| {
-                        value == canonical
-                            || value.trim_end_matches(".git") == canonical.trim_end_matches(".git")
-                    })
-                    .unwrap_or(false)
-            }) {
+            let Some(entry) = apm_lock_entry(&existing_entries, source) else {
                 return Err(anyhow!(
-                "Frozen install failed: carabiner-apm.lock.yaml is missing entries for: {source}. Run 'carabiner install --mode apm' to update the lockfile."
+                    "Frozen install failed: carabiner-apm.lock.yaml is missing entries for: {source}. Run 'carabiner install --mode apm' to update the lockfile."
+                ));
+            };
+            if !locked_deployed_files_match(entry, &project_root) {
+                return Err(anyhow!(
+                    "Frozen install failed: cached artifacts do not match the lockfile for: {source}. Run 'carabiner install --mode apm' to restore them."
                 ));
             }
         }
@@ -4841,6 +4987,15 @@ fn install_apm_manifest(options: &InstallCli) -> Result<Value> {
     let mut deployed_total = 0usize;
     let mut failed = 0usize;
     for (source, requested_ref, dependency_path) in &dependencies {
+        if options.frozen {
+            let entry = apm_lock_entry(&existing_entries, source).ok_or_else(|| {
+                anyhow!(
+                    "Frozen install failed: carabiner-apm.lock.yaml is missing entries for: {source}. Run 'carabiner install --mode apm' to update the lockfile."
+                )
+            })?;
+            lock_entries.push(entry.clone());
+            continue;
+        }
         let result = (|| -> Result<(usize, serde_yaml::Value)> {
             let (root, temporary, canonical_url) =
                 clone_apm_source(source, requested_ref.as_deref())?;
@@ -6401,11 +6556,7 @@ fn update_repository(options: &UpdateCli) -> Result<String> {
         .repository
         .as_deref()
         .or(env_repository.as_deref())
-        .ok_or_else(|| {
-            anyhow!(
-                "Carabiner update repository is not configured. Pass --repository owner/repo or set CARABINER_UPDATE_REPOSITORY."
-            )
-        })?;
+        .unwrap_or(DEFAULT_UPDATE_REPOSITORY);
     let (owner, repo) = parse_release_repository(source)?;
     Ok(format!("{owner}/{repo}"))
 }
@@ -6430,8 +6581,10 @@ fn update_asset_prefix(options: &UpdateCli) -> Result<String> {
 }
 
 fn update_asset_name(prefix: &str) -> Result<String> {
-    let platform = std::env::consts::OS;
-    let architecture = std::env::consts::ARCH;
+    update_asset_name_for(prefix, std::env::consts::OS, std::env::consts::ARCH)
+}
+
+fn update_asset_name_for(prefix: &str, platform: &str, architecture: &str) -> Result<String> {
     let platform_name = match platform {
         "macos" => "darwin",
         "windows" => "windows",
@@ -6748,6 +6901,13 @@ fn mcp_required_string(args: &Map<String, Value>, key: &str) -> Result<String> {
         .map(ToOwned::to_owned)
         .ok_or_else(|| anyhow!("{key} is required"))
 }
+fn mcp_assert_workspace_path_safe(path: &Path) -> Result<()> {
+    let workspace = std::env::current_dir()
+        .context("failed to determine MCP workspace")?
+        .canonicalize()
+        .context("failed to resolve MCP workspace")?;
+    assert_no_symlink_path(&workspace, &workspace.join(path))
+}
 
 fn mcp_feature_candidates(feature: &str) -> Option<&'static [&'static str]> {
     match feature {
@@ -6769,12 +6929,14 @@ fn mcp_feature_candidates(feature: &str) -> Option<&'static [&'static str]> {
 fn mcp_singleton_path(feature: &str) -> Result<String> {
     let candidates = mcp_feature_candidates(feature)
         .ok_or_else(|| anyhow!("unknown MCP feature '{feature}'"))?;
-    Ok(candidates
-        .iter()
-        .find(|candidate| Path::new(candidate).is_file())
-        .copied()
-        .unwrap_or(candidates[0])
-        .into())
+    for candidate in candidates {
+        let path = Path::new(candidate);
+        mcp_assert_workspace_path_safe(path)?;
+        if path.is_file() {
+            return Ok((*candidate).into());
+        }
+    }
+    Ok(candidates[0].into())
 }
 
 fn mcp_markdown_dir(feature: &str) -> Option<&'static str> {
@@ -6899,6 +7061,8 @@ fn encode_base64(bytes: &[u8]) -> String {
 }
 
 fn mcp_skill_other_files(skill_root: &Path) -> Result<Vec<Value>> {
+    mcp_assert_workspace_path_safe(skill_root)?;
+
     let mut files = Vec::new();
     for path in walk_files(skill_root) {
         let name = relative_slash(skill_root, &path);
@@ -6922,23 +7086,14 @@ fn mcp_skill_other_files(skill_root: &Path) -> Result<Vec<Value>> {
 }
 
 fn mcp_skill_path_is_safe(skill_root: &Path, target: &Path) -> Result<()> {
-    let mut current = PathBuf::new();
-    for component in target.components() {
-        current.push(component.as_os_str());
-        if fs::symlink_metadata(&current)
-            .map(|metadata| metadata.file_type().is_symlink())
-            .unwrap_or(false)
-        {
-            return Err(anyhow!(
-                "Refusing to write through a symbolic link: {}",
-                current.display()
-            ));
-        }
-        if current == skill_root {
-            break;
-        }
+    if !target.starts_with(skill_root) {
+        return Err(anyhow!(
+            "skill file path {} is outside skill root {}",
+            target.display(),
+            skill_root.display()
+        ));
     }
-    Ok(())
+    mcp_assert_workspace_path_safe(target)
 }
 
 fn mcp_decode_skill_files(args: &Map<String, Value>) -> Result<Vec<(String, Vec<u8>)>> {
@@ -6987,7 +7142,7 @@ fn mcp_target_path(args: &Map<String, Value>, feature: &str) -> Result<PathBuf> 
     let raw = mcp_required_string(args, "targetPathFromCwd")?;
     safe_relative_path(&raw)?;
     let input = PathBuf::from(&raw);
-    if feature == "skill" {
+    let path = if feature == "skill" {
         let relative = if input.file_name().and_then(|value| value.to_str()) == Some("SKILL.md") {
             input
                 .parent()
@@ -7009,18 +7164,21 @@ fn mcp_target_path(args: &Map<String, Value>, feature: &str) -> Result<PathBuf> 
             .and_then(|component| component.as_os_str().to_str())
             .ok_or_else(|| anyhow!("skill target path must name a skill directory"))?;
         safe_name(name)?;
-        return Ok(relative.join("SKILL.md"));
-    }
-    let directory =
-        mcp_markdown_dir(feature).ok_or_else(|| anyhow!("unknown MCP feature '{feature}'"))?;
-    let filename = input
-        .file_name()
-        .and_then(|value| value.to_str())
-        .ok_or_else(|| anyhow!("targetPathFromCwd must name a file"))?;
-    if !filename.ends_with(".md") || filename.starts_with('.') {
-        return Err(anyhow!("{feature} target path must name a Markdown file"));
-    }
-    Ok(PathBuf::from(directory).join(filename))
+        relative.join("SKILL.md")
+    } else {
+        let directory =
+            mcp_markdown_dir(feature).ok_or_else(|| anyhow!("unknown MCP feature '{feature}'"))?;
+        let filename = input
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| anyhow!("targetPathFromCwd must name a file"))?;
+        if !filename.ends_with(".md") || filename.starts_with('.') {
+            return Err(anyhow!("{feature} target path must name a Markdown file"));
+        }
+        PathBuf::from(directory).join(filename)
+    };
+    mcp_assert_workspace_path_safe(&path)?;
+    Ok(path)
 }
 
 fn mcp_read_markdown(feature: &str, args: &Map<String, Value>) -> Result<Value> {
@@ -7058,6 +7216,8 @@ fn mcp_list_markdown(feature: &str) -> Result<Value> {
     let directory =
         mcp_markdown_dir(feature).ok_or_else(|| anyhow!("unknown MCP feature '{feature}'"))?;
     let root = PathBuf::from(directory);
+    mcp_assert_workspace_path_safe(&root)?;
+
     let mut items = Vec::new();
     for path in walk_files(&root) {
         if feature == "skill" {
@@ -7154,6 +7314,10 @@ fn mcp_put_markdown(feature: &str, args: &Map<String, Value>) -> Result<Value> {
             ));
         }
         mcp_skill_path_is_safe(skill_root, &path)?;
+        for (name, _) in &decoded_files {
+            mcp_skill_path_is_safe(skill_root, &skill_root.join(name))?;
+        }
+
         write_text_raw(&path, &content, false)?;
         for (name, bytes) in decoded_files {
             let target = skill_root.join(name);
@@ -7184,15 +7348,6 @@ fn mcp_delete_markdown(feature: &str, args: &Map<String, Value>) -> Result<Value
         let skill_root = path
             .parent()
             .ok_or_else(|| anyhow!("skill target path must name a directory"))?;
-        if fs::symlink_metadata(skill_root)
-            .map(|metadata| metadata.file_type().is_symlink())
-            .unwrap_or(false)
-        {
-            return Err(anyhow!(
-                "Refusing to delete through a symbolic link: {}",
-                skill_root.display()
-            ));
-        }
         if skill_root.is_dir() {
             fs::remove_dir_all(skill_root)?;
         }
@@ -7218,6 +7373,7 @@ fn mcp_singleton_operation(feature: &str, operation: &str) -> Result<Value> {
         "delete" => {
             if let Some(candidates) = mcp_feature_candidates(feature) {
                 for candidate in candidates {
+                    mcp_assert_workspace_path_safe(Path::new(candidate))?;
                     if Path::new(candidate).is_file() {
                         fs::remove_file(candidate)?;
                     }
@@ -7882,4 +8038,106 @@ fn mcp_command() -> Result<Value> {
         stdout.flush()?;
     }
     Ok(json!({"started": true}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+
+    fn tarball_with_entry(path: &str, content: &[u8]) -> Vec<u8> {
+        let encoder = GzEncoder::new(Vec::new(), Compression::default());
+        let mut archive = tar::Builder::new(encoder);
+        let mut header = tar::Header::new_gnu();
+        header.set_size(content.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        archive.append_data(&mut header, path, content).unwrap();
+        archive.into_inner().unwrap().finish().unwrap()
+    }
+
+    fn tarball_with_symlink(path: &str, target: &str) -> Vec<u8> {
+        let encoder = GzEncoder::new(Vec::new(), Compression::default());
+        let mut archive = tar::Builder::new(encoder);
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Symlink);
+        header.set_link_name(target).unwrap();
+        header.set_size(0);
+        header.set_cksum();
+        archive
+            .append_data(&mut header, path, std::io::empty())
+            .unwrap();
+        archive.into_inner().unwrap().finish().unwrap()
+    }
+
+    fn temp_directory(label: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("carabiner-{label}-{}-{stamp}", std::process::id()));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn npm_integrity_accepts_standard_sri_and_rejects_changes() {
+        let content = b"verified tarball";
+        let integrity = format!("sha512-{}", STANDARD.encode(Sha512::digest(content)));
+        assert!(npm_integrity(content, &integrity).is_ok());
+        assert!(npm_integrity(b"modified tarball", &integrity).is_err());
+        assert!(npm_integrity(content, "").is_err());
+    }
+
+    #[test]
+    fn npm_rejects_insecure_registries_and_unallowlisted_token_envs() {
+        assert!(npm_registry_origin("http://registry.example.test").is_err());
+        let options = InstallCli::default();
+        let source = json!({"tokenEnv": "ARBITRARY_SECRET"});
+        assert!(npm_token(
+            source.as_object().unwrap(),
+            &options,
+            "https://registry.npmjs.org"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn updater_asset_names_match_release_contract() {
+        let cases = [
+            ("macos", "aarch64", "carabiner-darwin-arm64"),
+            ("macos", "x86_64", "carabiner-darwin-x64"),
+            ("linux", "aarch64", "carabiner-linux-arm64"),
+            ("linux", "x86_64", "carabiner-linux-x64"),
+            ("windows", "aarch64", "carabiner-windows-arm64.exe"),
+            ("windows", "x86_64", "carabiner-windows-x64.exe"),
+        ];
+        for (platform, architecture, asset) in cases {
+            assert_eq!(
+                update_asset_name_for("carabiner", platform, architecture).unwrap(),
+                asset
+            );
+        }
+        assert_eq!(
+            update_repository(&UpdateCli::default()).unwrap(),
+            DEFAULT_UPDATE_REPOSITORY
+        );
+    }
+
+    #[test]
+    fn npm_extraction_rejects_symlinks_and_writes_regular_files() {
+        let root = temp_directory("npm-extract");
+        let regular = tarball_with_entry("package/skills/demo/SKILL.md", b"demo");
+        extract_npm_tarball(&regular, &root).unwrap();
+        assert_eq!(
+            fs::read(root.join("package/skills/demo/SKILL.md")).unwrap(),
+            b"demo"
+        );
+
+        let symlink = tarball_with_symlink("package/skills/link", "../../outside");
+        assert!(extract_npm_tarball(&symlink, &root).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
 }

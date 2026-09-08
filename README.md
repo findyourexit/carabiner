@@ -162,7 +162,7 @@ These targets are excluded from `--targets "*"`. Use them only by naming them ex
 | `carabiner gitignore` | Append generated-file paths to `.gitignore` |
 | `carabiner doctor` | Diagnose configuration problems |
 | `carabiner docs` | Read documentation in the terminal |
-| `carabiner update` | Update Carabiner to the latest release |
+| `carabiner update` | Update from the official release; use `--repository` for a fork or private distribution |
 | `carabiner mcp` | Run Carabiner as an MCP server |
 
 Run `carabiner <command> --help` for full option details.

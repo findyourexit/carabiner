@@ -41,3 +41,5 @@ Reports are handled on a best-effort basis. Valid reports receive coordinated fi
 ## Scope
 
 Hostile filenames, symlinks, and unexpected file system layouts used as input to Carabiner commands are in scope. Carabiner trusts the operating-system kernel and the contents of source files you have authored.
+
+MCP file operations reject symbolic links in canonical destination paths. Report any path that lets an MCP operation read, write, or delete outside its workspace.

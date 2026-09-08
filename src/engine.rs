@@ -3,7 +3,9 @@ use crate::model::{
     CanonicalModel, Command, Feature, FeatureResult, FlatGenerateResult, FlatImportResult,
     GenerateResult, GeneratedFile, ImportResult, Rule, Skill, SkillFile, Subagent,
 };
-use crate::targets::{all_targets, target_spec, DataFormat, RuleMode, ScopePaths, TargetSpec};
+use crate::targets::{
+    all_targets, target_spec, DataFormat, PathSpec, RuleMode, ScopePaths, TargetSpec,
+};
 use crate::util::{
     direct_dirs, get_bool, get_string, get_string_array, home_dir, indent_yaml_sequences,
     json_pretty, object_value, parse_frontmatter, parse_jsonc, relative_slash, safe_name,
@@ -1325,8 +1327,13 @@ fn write_generated_file(
     let changed = if file.binary {
         write_bytes(&path, &file.content, dry_run)?
     } else {
-        let text = String::from_utf8(file.content.clone()).unwrap_or_default();
-        write_text(&path, &text, dry_run)?
+        let text = std::str::from_utf8(&file.content).with_context(|| {
+            format!(
+                "generated text file {} contains invalid UTF-8",
+                file.relative_path
+            )
+        })?;
+        write_text(&path, text, dry_run)?
     };
     #[cfg(unix)]
     if feature == Feature::Hooks
@@ -7521,197 +7528,10 @@ fn render_permissions(
         _ => Map::new(),
     };
     if spec.name == "takt" {
-        let mut root = result;
-        let provider = root
-            .get("provider")
-            .and_then(Value::as_str)
-            .unwrap_or("claude")
-            .to_owned();
-        let mut profiles = match root.remove("provider_profiles") {
-            Some(Value::Object(map)) => map,
-            _ => Map::new(),
-        };
-        let mut profile = match profiles.remove(&provider) {
-            Some(Value::Object(map)) => map,
-            _ => Map::new(),
-        };
-        profile.insert(
-            "default_permission_mode".into(),
-            Value::String(derive_takt_permission_mode(&effective).into()),
-        );
-        if let Some(Value::Object(override_fields)) = source.get("takt") {
-            for key in ["step_permission_overrides"] {
-                if let Some(value) = override_fields.get(key) {
-                    profile.insert(key.into(), value.clone());
-                }
-            }
-            for key in [
-                "provider_options",
-                "network_policy",
-                "filesystem_policy",
-                "shell_policy",
-                "workflow_command_gates",
-            ] {
-                if let Some(value) = override_fields.get(key) {
-                    root.insert(key.into(), value.clone());
-                }
-            }
-        }
-        profiles.insert(provider, Value::Object(profile));
-        root.insert("provider_profiles".into(), Value::Object(profiles));
-        return Ok(vec![GeneratedFile::text(
-            path.path(),
-            serialize_json_or_yaml(&Value::Object(root), &path.file)?,
-            Feature::Permissions,
-        )]);
+        return render_takt_permissions(source, &path, &effective, result);
     }
     if spec.name == "codexcli" {
-        let mut profiles = match result.remove("permissions") {
-            Some(Value::Object(map)) => map,
-            _ => Map::new(),
-        };
-        let base_profile = source
-            .get("codexcli")
-            .and_then(object_value)
-            .and_then(|fields| get_string(fields, "base_permission_profile"))
-            .unwrap_or_else(|| ":workspace".into());
-        if base_profile == ":danger-full-access" {
-            result.insert("default_permissions".into(), Value::String(base_profile));
-            profiles.remove("carabiner");
-        } else {
-            let mut profile = match profiles.remove("carabiner") {
-                Some(Value::Object(map)) => map,
-                _ => Map::new(),
-            };
-            profile.insert("extends".into(), Value::String(base_profile.clone()));
-            let mut filesystem =
-                Map::from_iter([(String::from(":minimal"), Value::String("read".into()))]);
-            let mut workspace_roots = Map::new();
-            for category in ["read", "edit", "write"] {
-                if let Some(rules) = effective.get(category).and_then(Value::as_object) {
-                    for (pattern, action) in rules {
-                        let access = if action.as_str() == Some("allow") {
-                            if category == "read" {
-                                "read"
-                            } else {
-                                "write"
-                            }
-                        } else {
-                            "deny"
-                        };
-                        if pattern.starts_with('/')
-                            || pattern.starts_with("~/")
-                            || pattern.starts_with(':')
-                        {
-                            filesystem.insert(pattern.clone(), Value::String(access.into()));
-                        } else {
-                            workspace_roots.insert(pattern.clone(), Value::String(access.into()));
-                        }
-                    }
-                }
-            }
-            if source
-                .get("codexcli")
-                .and_then(object_value)
-                .and_then(|fields| fields.get("git_write_rules"))
-                .and_then(Value::as_bool)
-                != Some(false)
-                && base_profile != ":read-only"
-            {
-                workspace_roots
-                    .entry(".git/**")
-                    .or_insert(Value::String("write".into()));
-            }
-            if workspace_roots.keys().any(|pattern| pattern.contains("**")) {
-                filesystem.insert(
-                    "glob_scan_max_depth".into(),
-                    Value::Number(serde_json::Number::from(8)),
-                );
-            }
-            if !workspace_roots.is_empty() {
-                filesystem.insert(":workspace_roots".into(), Value::Object(workspace_roots));
-            }
-            profile.insert("filesystem".into(), Value::Object(filesystem));
-            if let Some(rules) = effective.get("webfetch").and_then(Value::as_object) {
-                let domains = rules
-                    .iter()
-                    .filter(|(_, action)| action.as_str() != Some("ask"))
-                    .map(|(domain, action)| {
-                        (
-                            domain.clone(),
-                            Value::String(
-                                if action.as_str() == Some("allow") {
-                                    "allow"
-                                } else {
-                                    "deny"
-                                }
-                                .into(),
-                            ),
-                        )
-                    })
-                    .collect::<Map<_, _>>();
-                if !domains.is_empty() {
-                    profile.insert(
-                        "network".into(),
-                        Value::Object(Map::from_iter([
-                            (
-                                String::from("enabled"),
-                                Value::Bool(
-                                    domains
-                                        .values()
-                                        .any(|value| value.as_str() == Some("allow")),
-                                ),
-                            ),
-                            (String::from("domains"), Value::Object(domains)),
-                        ])),
-                    );
-                }
-            }
-            profiles.insert("carabiner".into(), Value::Object(profile));
-            result.insert(
-                "default_permissions".into(),
-                Value::String("carabiner".into()),
-            );
-        }
-        if profiles.is_empty() {
-            result.remove("permissions");
-        } else {
-            result.insert("permissions".into(), Value::Object(profiles));
-        }
-        if !result.contains_key("approval_policy") {
-            result.insert("approval_policy".into(), Value::String("on-request".into()));
-        }
-        if !result.contains_key("approvals_reviewer") {
-            result.insert(
-                "approvals_reviewer".into(),
-                Value::String("auto_review".into()),
-            );
-        }
-        if let Some(Value::Object(override_fields)) = source.get("codexcli") {
-            for key in [
-                "approval_policy",
-                "sandbox_mode",
-                "sandbox_workspace_write",
-                "apps",
-                "approvals_reviewer",
-                "tui",
-            ] {
-                if let Some(value) = override_fields.get(key) {
-                    result.insert(key.into(), value.clone());
-                }
-            }
-        }
-        let mut output = vec![GeneratedFile::text(
-            path.path(),
-            serialize_json_or_yaml(&Value::Object(result), &path.file)?,
-            Feature::Permissions,
-        )];
-        output.push(GeneratedFile::text(
-            ".codex/rules/carabiner.rules",
-            render_codex_bash_rules(&effective),
-            Feature::Permissions,
-        ));
-        return Ok(output);
+        return render_codex_permissions(source, &path, &effective, result);
     }
     if spec.name == "augmentcode" {
         result.insert(
@@ -8766,6 +8586,211 @@ fn render_permissions(
         serialize_json_or_yaml(&Value::Object(result), &path.file)?,
         Feature::Permissions,
     )])
+}
+
+fn render_takt_permissions(
+    source: &Value,
+    path: &PathSpec,
+    effective: &Map<String, Value>,
+    result: Map<String, Value>,
+) -> Result<Vec<GeneratedFile>> {
+    let mut root = result;
+    let provider = root
+        .get("provider")
+        .and_then(Value::as_str)
+        .unwrap_or("claude")
+        .to_owned();
+    let mut profiles = match root.remove("provider_profiles") {
+        Some(Value::Object(map)) => map,
+        _ => Map::new(),
+    };
+    let mut profile = match profiles.remove(&provider) {
+        Some(Value::Object(map)) => map,
+        _ => Map::new(),
+    };
+    profile.insert(
+        "default_permission_mode".into(),
+        Value::String(derive_takt_permission_mode(effective).into()),
+    );
+    if let Some(Value::Object(override_fields)) = source.get("takt") {
+        for key in ["step_permission_overrides"] {
+            if let Some(value) = override_fields.get(key) {
+                profile.insert(key.into(), value.clone());
+            }
+        }
+        for key in [
+            "provider_options",
+            "network_policy",
+            "filesystem_policy",
+            "shell_policy",
+            "workflow_command_gates",
+        ] {
+            if let Some(value) = override_fields.get(key) {
+                root.insert(key.into(), value.clone());
+            }
+        }
+    }
+    profiles.insert(provider, Value::Object(profile));
+    root.insert("provider_profiles".into(), Value::Object(profiles));
+    Ok(vec![GeneratedFile::text(
+        path.path(),
+        serialize_json_or_yaml(&Value::Object(root), &path.file)?,
+        Feature::Permissions,
+    )])
+}
+
+fn render_codex_permissions(
+    source: &Value,
+    path: &PathSpec,
+    effective: &Map<String, Value>,
+    mut result: Map<String, Value>,
+) -> Result<Vec<GeneratedFile>> {
+    let mut profiles = match result.remove("permissions") {
+        Some(Value::Object(map)) => map,
+        _ => Map::new(),
+    };
+    let base_profile = source
+        .get("codexcli")
+        .and_then(object_value)
+        .and_then(|fields| get_string(fields, "base_permission_profile"))
+        .unwrap_or_else(|| ":workspace".into());
+    if base_profile == ":danger-full-access" {
+        result.insert("default_permissions".into(), Value::String(base_profile));
+        profiles.remove("carabiner");
+    } else {
+        let mut profile = match profiles.remove("carabiner") {
+            Some(Value::Object(map)) => map,
+            _ => Map::new(),
+        };
+        profile.insert("extends".into(), Value::String(base_profile.clone()));
+        let mut filesystem =
+            Map::from_iter([(String::from(":minimal"), Value::String("read".into()))]);
+        let mut workspace_roots = Map::new();
+        for category in ["read", "edit", "write"] {
+            if let Some(rules) = effective.get(category).and_then(Value::as_object) {
+                for (pattern, action) in rules {
+                    let access = if action.as_str() == Some("allow") {
+                        if category == "read" {
+                            "read"
+                        } else {
+                            "write"
+                        }
+                    } else {
+                        "deny"
+                    };
+                    if pattern.starts_with('/')
+                        || pattern.starts_with("~/")
+                        || pattern.starts_with(':')
+                    {
+                        filesystem.insert(pattern.clone(), Value::String(access.into()));
+                    } else {
+                        workspace_roots.insert(pattern.clone(), Value::String(access.into()));
+                    }
+                }
+            }
+        }
+        if source
+            .get("codexcli")
+            .and_then(object_value)
+            .and_then(|fields| fields.get("git_write_rules"))
+            .and_then(Value::as_bool)
+            != Some(false)
+            && base_profile != ":read-only"
+        {
+            workspace_roots
+                .entry(".git/**")
+                .or_insert(Value::String("write".into()));
+        }
+        if workspace_roots.keys().any(|pattern| pattern.contains("**")) {
+            filesystem.insert(
+                "glob_scan_max_depth".into(),
+                Value::Number(serde_json::Number::from(8)),
+            );
+        }
+        if !workspace_roots.is_empty() {
+            filesystem.insert(":workspace_roots".into(), Value::Object(workspace_roots));
+        }
+        profile.insert("filesystem".into(), Value::Object(filesystem));
+        if let Some(rules) = effective.get("webfetch").and_then(Value::as_object) {
+            let domains = rules
+                .iter()
+                .filter(|(_, action)| action.as_str() != Some("ask"))
+                .map(|(domain, action)| {
+                    (
+                        domain.clone(),
+                        Value::String(
+                            if action.as_str() == Some("allow") {
+                                "allow"
+                            } else {
+                                "deny"
+                            }
+                            .into(),
+                        ),
+                    )
+                })
+                .collect::<Map<_, _>>();
+            if !domains.is_empty() {
+                profile.insert(
+                    "network".into(),
+                    Value::Object(Map::from_iter([
+                        (
+                            String::from("enabled"),
+                            Value::Bool(
+                                domains
+                                    .values()
+                                    .any(|value| value.as_str() == Some("allow")),
+                            ),
+                        ),
+                        (String::from("domains"), Value::Object(domains)),
+                    ])),
+                );
+            }
+        }
+        profiles.insert("carabiner".into(), Value::Object(profile));
+        result.insert(
+            "default_permissions".into(),
+            Value::String("carabiner".into()),
+        );
+    }
+    if profiles.is_empty() {
+        result.remove("permissions");
+    } else {
+        result.insert("permissions".into(), Value::Object(profiles));
+    }
+    if !result.contains_key("approval_policy") {
+        result.insert("approval_policy".into(), Value::String("on-request".into()));
+    }
+    if !result.contains_key("approvals_reviewer") {
+        result.insert(
+            "approvals_reviewer".into(),
+            Value::String("auto_review".into()),
+        );
+    }
+    if let Some(Value::Object(override_fields)) = source.get("codexcli") {
+        for key in [
+            "approval_policy",
+            "sandbox_mode",
+            "sandbox_workspace_write",
+            "apps",
+            "approvals_reviewer",
+            "tui",
+        ] {
+            if let Some(value) = override_fields.get(key) {
+                result.insert(key.into(), value.clone());
+            }
+        }
+    }
+    let mut output = vec![GeneratedFile::text(
+        path.path(),
+        serialize_json_or_yaml(&Value::Object(result), &path.file)?,
+        Feature::Permissions,
+    )];
+    output.push(GeneratedFile::text(
+        ".codex/rules/carabiner.rules",
+        render_codex_bash_rules(effective),
+        Feature::Permissions,
+    ));
+    Ok(output)
 }
 
 fn effective_permissions(source: &Value, target: &str) -> Map<String, Value> {
@@ -10341,401 +10366,7 @@ fn load_model_from_tool(
 ) -> Result<CanonicalModel> {
     let paths = spec.paths(global);
     let mut model = CanonicalModel::default();
-    let import_primary_root = (global
-        || !matches!(
-            spec.name.as_str(),
-            "cline" | "kiro" | "kiro-cli" | "kiro-ide"
-        ))
-        && !matches!(spec.name.as_str(), "roo" | "zoocode");
-    if import_primary_root {
-        if let Some(root) = &paths.root_rule {
-            let mut candidates = vec![output_root.join(root.path())];
-            if spec.name == "pi" {
-                candidates.push(output_root.join(pi_override_path(global)));
-            }
-            if !global && matches!(spec.name.as_str(), "claudecode" | "claudecode-legacy") {
-                candidates.push(output_root.join(".claude/CLAUDE.md"));
-            }
-            if !global && spec.name == "rovodev" {
-                candidates.push(output_root.join("AGENTS.md"));
-            }
-            if let Some(path) = candidates.into_iter().find(|path| path.is_file()) {
-                let content = fs::read_to_string(&path)?;
-                let parsed = parse_frontmatter(&content, &path)?;
-                let (frontmatter, body) = if parsed.has_frontmatter {
-                    (parsed.data, parsed.body)
-                } else {
-                    (Map::new(), content.trim().to_owned())
-                };
-                let mut frontmatter = frontmatter;
-                frontmatter.insert("root".into(), Value::Bool(spec.name != "takt"));
-                frontmatter.insert(
-                    "targets".into(),
-                    Value::Array(vec![Value::String("*".into())]),
-                );
-                if spec.name == "takt" {
-                    frontmatter.insert("globs".into(), Value::Array(Vec::new()));
-                } else if !matches!(spec.name.as_str(), "copilot" | "copilotcli") {
-                    frontmatter
-                        .entry("globs")
-                        .or_insert_with(|| Value::Array(vec![Value::String("**/*".into())]));
-                }
-                if matches!(spec.name.as_str(), "claudecode" | "claudecode-legacy") {
-                    frontmatter.insert(
-                        "globs".into(),
-                        Value::Array(vec![Value::String("**/*".into())]),
-                    );
-                }
-                if spec.name == "pi"
-                    && path.file_name().and_then(|value| value.to_str())
-                        == Some("AGENTS.override.md")
-                {
-                    frontmatter.insert(
-                        "pi".into(),
-                        Value::Object(Map::from_iter([(
-                            "contextFile".into(),
-                            Value::String("override".into()),
-                        )])),
-                    );
-                }
-                let relative_path = if matches!(
-                    spec.name.as_str(),
-                    "claudecode" | "copilot" | "copilotcli" | "augmentcode-legacy"
-                ) {
-                    path.file_name()
-                        .and_then(|value| value.to_str())
-                        .unwrap_or("overview.md")
-                        .to_owned()
-                } else {
-                    "overview.md".into()
-                };
-                model.rules.push(Rule {
-                    relative_path,
-                    frontmatter,
-                    body,
-                });
-            }
-        }
-    }
-    if spec.name == "pi" {
-        let append_path = output_root.join(pi_append_path(global));
-        if append_path.is_file() {
-            let mut frontmatter = Map::new();
-            frontmatter.insert("root".into(), Value::Bool(false));
-            frontmatter.insert(
-                "targets".into(),
-                Value::Array(vec![Value::String("pi".into())]),
-            );
-            frontmatter.insert(
-                "pi".into(),
-                Value::Object(Map::from_iter([(
-                    "systemPrompt".into(),
-                    Value::String("append".into()),
-                )])),
-            );
-            model.rules.push(Rule {
-                relative_path: "APPEND_SYSTEM.md".into(),
-                frontmatter,
-                body: fs::read_to_string(append_path)?.trim().to_owned(),
-            });
-        }
-    }
-    if let Some(dir) = &paths.nonroot_rule_dir {
-        let base = output_root.join(dir);
-        for path in walk_files_following_links(&base) {
-            if !matches!(
-                path.extension().and_then(|value| value.to_str()),
-                Some("md") | Some("mdc")
-            ) {
-                continue;
-            }
-            if paths
-                .root_rule
-                .as_ref()
-                .map(|root| path == output_root.join(root.path()))
-                .unwrap_or(false)
-            {
-                continue;
-            }
-            let content = fs::read_to_string(&path)?;
-            let parsed = parse_frontmatter(&content, &path)?;
-            let mut frontmatter = parsed.data;
-            frontmatter.insert("root".into(), Value::Bool(false));
-            frontmatter.insert(
-                "targets".into(),
-                Value::Array(vec![Value::String("*".into())]),
-            );
-            if matches!(
-                spec.name.as_str(),
-                "aiassistant" | "kiro" | "kiro-cli" | "kiro-ide" | "roo" | "takt" | "zoocode"
-            ) {
-                frontmatter
-                    .entry("globs")
-                    .or_insert_with(|| Value::Array(Vec::new()));
-            }
-            if spec.name == "cursor" {
-                let always_apply = frontmatter.remove("alwaysApply");
-                let globs_value = frontmatter.remove("globs");
-                let mut globs = globs_value
-                    .as_ref()
-                    .map(|value| match value {
-                        Value::String(value) => value
-                            .split(',')
-                            .map(|part| Value::String(part.trim().into()))
-                            .filter(|value| value.as_str().is_some_and(|part| !part.is_empty()))
-                            .collect::<Vec<_>>(),
-                        Value::Array(values) => values.clone(),
-                        _ => Vec::new(),
-                    })
-                    .unwrap_or_default();
-                if always_apply.as_ref().and_then(Value::as_bool) == Some(true) && globs.is_empty()
-                {
-                    globs.push(Value::String("**/*".into()));
-                }
-                frontmatter.insert("globs".into(), Value::Array(globs.clone()));
-                let mut cursor = Map::new();
-                if let Some(always_apply) = always_apply {
-                    cursor.insert("alwaysApply".into(), always_apply);
-                }
-                if let Some(description) = frontmatter.get("description") {
-                    cursor.insert("description".into(), description.clone());
-                }
-                if !globs.is_empty() {
-                    cursor.insert("globs".into(), Value::Array(globs));
-                }
-                if !cursor.is_empty() {
-                    frontmatter.insert("cursor".into(), Value::Object(cursor));
-                }
-            }
-            if matches!(spec.name.as_str(), "claudecode" | "claudecode-legacy") {
-                if let Some(paths_value) = frontmatter.remove("paths") {
-                    frontmatter.insert(
-                        "claudecode".into(),
-                        Value::Object(Map::from_iter([("paths".into(), paths_value.clone())])),
-                    );
-                    if let Value::Array(values) = paths_value {
-                        frontmatter.insert("globs".into(), Value::Array(values));
-                    }
-                }
-            }
-            if let Some(apply_to) = frontmatter.remove("applyTo") {
-                if let Some(value) = apply_to.as_str() {
-                    frontmatter.insert(
-                        "globs".into(),
-                        Value::Array(
-                            value
-                                .split(',')
-                                .map(|part| Value::String(part.trim().into()))
-                                .collect(),
-                        ),
-                    );
-                }
-            }
-            if spec.name == "qwencode" {
-                if let Some(paths_value) = frontmatter.remove("paths") {
-                    let globs = match paths_value {
-                        Value::Array(values) => Value::Array(values),
-                        Value::String(value) => Value::Array(
-                            value
-                                .split(',')
-                                .map(|part| Value::String(part.trim().into()))
-                                .filter(|value| {
-                                    value
-                                        .as_str()
-                                        .map(|value| !value.is_empty())
-                                        .unwrap_or(false)
-                                })
-                                .collect(),
-                        ),
-                        other => other,
-                    };
-                    frontmatter.insert("globs".into(), globs);
-                }
-            }
-            if spec.name == "cline" {
-                let always = frontmatter
-                    .remove("alwaysApply")
-                    .and_then(|value| value.as_bool())
-                    .unwrap_or(false);
-                if always {
-                    frontmatter.insert(
-                        "globs".into(),
-                        Value::Array(vec![Value::String("**/*".into())]),
-                    );
-                } else if let Some(paths_value) = frontmatter.remove("paths") {
-                    frontmatter.insert("globs".into(), paths_value);
-                } else {
-                    frontmatter.insert("globs".into(), Value::Array(Vec::new()));
-                }
-            }
-            if spec.name == "antigravity-ide" || spec.name == "antigravity-plugin" {
-                let description = frontmatter.remove("description");
-                let raw_globs = frontmatter.remove("globs");
-                let trigger =
-                    get_string(&frontmatter, "trigger").unwrap_or_else(|| "always_on".into());
-                let globs = raw_globs
-                    .map(|value| match value {
-                        Value::Array(values) => values,
-                        Value::String(value) => value
-                            .split(',')
-                            .map(|part| Value::String(part.trim().into()))
-                            .collect(),
-                        _ => Vec::new(),
-                    })
-                    .unwrap_or_default();
-                frontmatter.remove("root");
-                frontmatter.remove("targets");
-                if trigger == "always_on" {
-                    frontmatter.insert(
-                        "globs".into(),
-                        Value::Array(vec![Value::String("**/*".into())]),
-                    );
-                } else if !globs.is_empty() {
-                    frontmatter.insert("globs".into(), Value::Array(globs));
-                }
-                frontmatter.insert("antigravity".into(), Value::Object(frontmatter.clone()));
-                if let Some(description) = description {
-                    frontmatter.insert("description".into(), description);
-                }
-            }
-            if spec.name == "kiro" || spec.name == "kiro-cli" || spec.name == "kiro-ide" {
-                let inclusion = frontmatter.remove("inclusion");
-                let pattern = frontmatter.remove("fileMatchPattern");
-                let mut kiro = Map::new();
-                if let Some(inclusion) = inclusion {
-                    kiro.insert("inclusion".into(), inclusion);
-                }
-                if let Some(pattern) = pattern {
-                    kiro.insert("fileMatchPattern".into(), pattern);
-                }
-                if !kiro.is_empty() {
-                    frontmatter.insert("kiro".into(), Value::Object(kiro));
-                }
-                let pattern = frontmatter
-                    .get("kiro")
-                    .and_then(object_value)
-                    .and_then(|fields| fields.get("fileMatchPattern"))
-                    .cloned();
-                if let Some(pattern) = pattern {
-                    frontmatter.insert(
-                        "globs".into(),
-                        match pattern {
-                            Value::Array(values) => Value::Array(values),
-                            Value::String(value) => Value::Array(vec![Value::String(value)]),
-                            _ => Value::Array(Vec::new()),
-                        },
-                    );
-                }
-            }
-            if spec.name == "augmentcode" {
-                let description = frontmatter.remove("description");
-                frontmatter.remove("root");
-                frontmatter.remove("targets");
-                let mut augment = frontmatter;
-                if let Some(description) = description.clone() {
-                    augment.insert("description".into(), description);
-                }
-                frontmatter = Map::new();
-                if let Some(description) = description {
-                    frontmatter.insert("description".into(), description);
-                }
-                frontmatter.insert("augmentcode".into(), Value::Object(augment));
-            }
-            frontmatter.insert("root".into(), Value::Bool(false));
-            frontmatter.insert(
-                "targets".into(),
-                Value::Array(vec![Value::String("*".into())]),
-            );
-            if spec.name == "cursor" {
-                let mut ordered = Map::new();
-                for key in [
-                    "root",
-                    "localRoot",
-                    "targets",
-                    "description",
-                    "globs",
-                    "cursor",
-                ] {
-                    if let Some(value) = frontmatter.remove(key) {
-                        ordered.insert(key.into(), value);
-                    }
-                }
-                ordered.extend(frontmatter);
-                frontmatter = ordered;
-            }
-            let name = relative_slash(&base, &path)
-                .replace(".instructions.md", ".md")
-                .replace(".mdc", ".md");
-            model.rules.push(Rule {
-                relative_path: name,
-                frontmatter,
-                body: parsed.body,
-            });
-        }
-    }
-    if matches!(spec.name.as_str(), "roo" | "zoocode") {
-        load_roo_mode_rules(&mut model, output_root, &spec.name)?;
-    }
-    if spec.name == "reasonix" && !global {
-        load_nested_reasonix_rules(&mut model, output_root)?;
-    }
-    if spec.name == "takt" {
-        let base = output_root.join(".takt/facets/output-contracts");
-        for path in walk_files_following_links(&base)
-            .into_iter()
-            .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("md"))
-        {
-            let body = fs::read_to_string(&path)?.trim().to_owned();
-            let name = path
-                .file_stem()
-                .and_then(|value| value.to_str())
-                .unwrap_or("contract")
-                .to_owned();
-            let mut frontmatter = Map::new();
-            frontmatter.insert(
-                "targets".into(),
-                Value::Array(vec![Value::String("takt".into())]),
-            );
-            frontmatter.insert(
-                "takt".into(),
-                Value::Object(Map::from_iter([(
-                    "facet".into(),
-                    Value::String("output-contracts".into()),
-                )])),
-            );
-            model.rules.push(Rule {
-                relative_path: format!("{name}.md"),
-                frontmatter,
-                body,
-            });
-        }
-    }
-    if let Some(local) = &paths.local_rule {
-        let path = output_root.join(local.path());
-        if path.is_file() {
-            let content = fs::read_to_string(&path)?;
-            let mut frontmatter = Map::new();
-            frontmatter.insert("root".into(), Value::Bool(false));
-            frontmatter.insert("localRoot".into(), Value::Bool(true));
-            frontmatter.insert(
-                "targets".into(),
-                Value::Array(vec![Value::String(spec.name.clone())]),
-            );
-            model.rules.push(Rule {
-                relative_path: local.file.clone(),
-                frontmatter,
-                body: content.trim().to_owned(),
-            });
-        }
-    }
-    if !global
-        && matches!(
-            spec.name.as_str(),
-            "agentsmd" | "kiro" | "kiro-cli" | "kiro-ide"
-        )
-    {
-        load_nested_agents_rules(&mut model, output_root, &spec.name)?;
-    }
+    load_rules_from_tool(&mut model, spec, output_root, global, paths)?;
 
     if !matches!(spec.name.as_str(), "devin" | "warp") {
         if let Some(dir) = &paths.command_dir {
@@ -11647,6 +11278,411 @@ fn load_model_from_tool(
         }
     }
     Ok(model)
+}
+
+fn load_rules_from_tool(
+    model: &mut CanonicalModel,
+    spec: &TargetSpec,
+    output_root: &Path,
+    global: bool,
+    paths: &ScopePaths,
+) -> Result<()> {
+    let import_primary_root = (global
+        || !matches!(
+            spec.name.as_str(),
+            "cline" | "kiro" | "kiro-cli" | "kiro-ide"
+        ))
+        && !matches!(spec.name.as_str(), "roo" | "zoocode");
+    if import_primary_root {
+        if let Some(root) = &paths.root_rule {
+            let mut candidates = vec![output_root.join(root.path())];
+            if spec.name == "pi" {
+                candidates.push(output_root.join(pi_override_path(global)));
+            }
+            if !global && matches!(spec.name.as_str(), "claudecode" | "claudecode-legacy") {
+                candidates.push(output_root.join(".claude/CLAUDE.md"));
+            }
+            if !global && spec.name == "rovodev" {
+                candidates.push(output_root.join("AGENTS.md"));
+            }
+            if let Some(path) = candidates.into_iter().find(|path| path.is_file()) {
+                let content = fs::read_to_string(&path)?;
+                let parsed = parse_frontmatter(&content, &path)?;
+                let (frontmatter, body) = if parsed.has_frontmatter {
+                    (parsed.data, parsed.body)
+                } else {
+                    (Map::new(), content.trim().to_owned())
+                };
+                let mut frontmatter = frontmatter;
+                frontmatter.insert("root".into(), Value::Bool(spec.name != "takt"));
+                frontmatter.insert(
+                    "targets".into(),
+                    Value::Array(vec![Value::String("*".into())]),
+                );
+                if spec.name == "takt" {
+                    frontmatter.insert("globs".into(), Value::Array(Vec::new()));
+                } else if !matches!(spec.name.as_str(), "copilot" | "copilotcli") {
+                    frontmatter
+                        .entry("globs")
+                        .or_insert_with(|| Value::Array(vec![Value::String("**/*".into())]));
+                }
+                if matches!(spec.name.as_str(), "claudecode" | "claudecode-legacy") {
+                    frontmatter.insert(
+                        "globs".into(),
+                        Value::Array(vec![Value::String("**/*".into())]),
+                    );
+                }
+                if spec.name == "pi"
+                    && path.file_name().and_then(|value| value.to_str())
+                        == Some("AGENTS.override.md")
+                {
+                    frontmatter.insert(
+                        "pi".into(),
+                        Value::Object(Map::from_iter([(
+                            "contextFile".into(),
+                            Value::String("override".into()),
+                        )])),
+                    );
+                }
+                let relative_path = if matches!(
+                    spec.name.as_str(),
+                    "claudecode" | "copilot" | "copilotcli" | "augmentcode-legacy"
+                ) {
+                    path.file_name()
+                        .and_then(|value| value.to_str())
+                        .unwrap_or("overview.md")
+                        .to_owned()
+                } else {
+                    "overview.md".into()
+                };
+                model.rules.push(Rule {
+                    relative_path,
+                    frontmatter,
+                    body,
+                });
+            }
+        }
+    }
+    if spec.name == "pi" {
+        let append_path = output_root.join(pi_append_path(global));
+        if append_path.is_file() {
+            let mut frontmatter = Map::new();
+            frontmatter.insert("root".into(), Value::Bool(false));
+            frontmatter.insert(
+                "targets".into(),
+                Value::Array(vec![Value::String("pi".into())]),
+            );
+            frontmatter.insert(
+                "pi".into(),
+                Value::Object(Map::from_iter([(
+                    "systemPrompt".into(),
+                    Value::String("append".into()),
+                )])),
+            );
+            model.rules.push(Rule {
+                relative_path: "APPEND_SYSTEM.md".into(),
+                frontmatter,
+                body: fs::read_to_string(append_path)?.trim().to_owned(),
+            });
+        }
+    }
+    if let Some(dir) = &paths.nonroot_rule_dir {
+        let base = output_root.join(dir);
+        for path in walk_files_following_links(&base) {
+            if !matches!(
+                path.extension().and_then(|value| value.to_str()),
+                Some("md") | Some("mdc")
+            ) {
+                continue;
+            }
+            if paths
+                .root_rule
+                .as_ref()
+                .map(|root| path == output_root.join(root.path()))
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            let content = fs::read_to_string(&path)?;
+            let parsed = parse_frontmatter(&content, &path)?;
+            let mut frontmatter = parsed.data;
+            frontmatter.insert("root".into(), Value::Bool(false));
+            frontmatter.insert(
+                "targets".into(),
+                Value::Array(vec![Value::String("*".into())]),
+            );
+            if matches!(
+                spec.name.as_str(),
+                "aiassistant" | "kiro" | "kiro-cli" | "kiro-ide" | "roo" | "takt" | "zoocode"
+            ) {
+                frontmatter
+                    .entry("globs")
+                    .or_insert_with(|| Value::Array(Vec::new()));
+            }
+            if spec.name == "cursor" {
+                let always_apply = frontmatter.remove("alwaysApply");
+                let globs_value = frontmatter.remove("globs");
+                let mut globs = globs_value
+                    .as_ref()
+                    .map(|value| match value {
+                        Value::String(value) => value
+                            .split(',')
+                            .map(|part| Value::String(part.trim().into()))
+                            .filter(|value| value.as_str().is_some_and(|part| !part.is_empty()))
+                            .collect::<Vec<_>>(),
+                        Value::Array(values) => values.clone(),
+                        _ => Vec::new(),
+                    })
+                    .unwrap_or_default();
+                if always_apply.as_ref().and_then(Value::as_bool) == Some(true) && globs.is_empty()
+                {
+                    globs.push(Value::String("**/*".into()));
+                }
+                frontmatter.insert("globs".into(), Value::Array(globs.clone()));
+                let mut cursor = Map::new();
+                if let Some(always_apply) = always_apply {
+                    cursor.insert("alwaysApply".into(), always_apply);
+                }
+                if let Some(description) = frontmatter.get("description") {
+                    cursor.insert("description".into(), description.clone());
+                }
+                if !globs.is_empty() {
+                    cursor.insert("globs".into(), Value::Array(globs));
+                }
+                if !cursor.is_empty() {
+                    frontmatter.insert("cursor".into(), Value::Object(cursor));
+                }
+            }
+            if matches!(spec.name.as_str(), "claudecode" | "claudecode-legacy") {
+                if let Some(paths_value) = frontmatter.remove("paths") {
+                    frontmatter.insert(
+                        "claudecode".into(),
+                        Value::Object(Map::from_iter([("paths".into(), paths_value.clone())])),
+                    );
+                    if let Value::Array(values) = paths_value {
+                        frontmatter.insert("globs".into(), Value::Array(values));
+                    }
+                }
+            }
+            if let Some(apply_to) = frontmatter.remove("applyTo") {
+                if let Some(value) = apply_to.as_str() {
+                    frontmatter.insert(
+                        "globs".into(),
+                        Value::Array(
+                            value
+                                .split(',')
+                                .map(|part| Value::String(part.trim().into()))
+                                .collect(),
+                        ),
+                    );
+                }
+            }
+            if spec.name == "qwencode" {
+                if let Some(paths_value) = frontmatter.remove("paths") {
+                    let globs = match paths_value {
+                        Value::Array(values) => Value::Array(values),
+                        Value::String(value) => Value::Array(
+                            value
+                                .split(',')
+                                .map(|part| Value::String(part.trim().into()))
+                                .filter(|value| {
+                                    value
+                                        .as_str()
+                                        .map(|value| !value.is_empty())
+                                        .unwrap_or(false)
+                                })
+                                .collect(),
+                        ),
+                        other => other,
+                    };
+                    frontmatter.insert("globs".into(), globs);
+                }
+            }
+            if spec.name == "cline" {
+                let always = frontmatter
+                    .remove("alwaysApply")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false);
+                if always {
+                    frontmatter.insert(
+                        "globs".into(),
+                        Value::Array(vec![Value::String("**/*".into())]),
+                    );
+                } else if let Some(paths_value) = frontmatter.remove("paths") {
+                    frontmatter.insert("globs".into(), paths_value);
+                } else {
+                    frontmatter.insert("globs".into(), Value::Array(Vec::new()));
+                }
+            }
+            if spec.name == "antigravity-ide" || spec.name == "antigravity-plugin" {
+                let description = frontmatter.remove("description");
+                let raw_globs = frontmatter.remove("globs");
+                let trigger =
+                    get_string(&frontmatter, "trigger").unwrap_or_else(|| "always_on".into());
+                let globs = raw_globs
+                    .map(|value| match value {
+                        Value::Array(values) => values,
+                        Value::String(value) => value
+                            .split(',')
+                            .map(|part| Value::String(part.trim().into()))
+                            .collect(),
+                        _ => Vec::new(),
+                    })
+                    .unwrap_or_default();
+                frontmatter.remove("root");
+                frontmatter.remove("targets");
+                if trigger == "always_on" {
+                    frontmatter.insert(
+                        "globs".into(),
+                        Value::Array(vec![Value::String("**/*".into())]),
+                    );
+                } else if !globs.is_empty() {
+                    frontmatter.insert("globs".into(), Value::Array(globs));
+                }
+                frontmatter.insert("antigravity".into(), Value::Object(frontmatter.clone()));
+                if let Some(description) = description {
+                    frontmatter.insert("description".into(), description);
+                }
+            }
+            if spec.name == "kiro" || spec.name == "kiro-cli" || spec.name == "kiro-ide" {
+                let inclusion = frontmatter.remove("inclusion");
+                let pattern = frontmatter.remove("fileMatchPattern");
+                let mut kiro = Map::new();
+                if let Some(inclusion) = inclusion {
+                    kiro.insert("inclusion".into(), inclusion);
+                }
+                if let Some(pattern) = pattern {
+                    kiro.insert("fileMatchPattern".into(), pattern);
+                }
+                if !kiro.is_empty() {
+                    frontmatter.insert("kiro".into(), Value::Object(kiro));
+                }
+                let pattern = frontmatter
+                    .get("kiro")
+                    .and_then(object_value)
+                    .and_then(|fields| fields.get("fileMatchPattern"))
+                    .cloned();
+                if let Some(pattern) = pattern {
+                    frontmatter.insert(
+                        "globs".into(),
+                        match pattern {
+                            Value::Array(values) => Value::Array(values),
+                            Value::String(value) => Value::Array(vec![Value::String(value)]),
+                            _ => Value::Array(Vec::new()),
+                        },
+                    );
+                }
+            }
+            if spec.name == "augmentcode" {
+                let description = frontmatter.remove("description");
+                frontmatter.remove("root");
+                frontmatter.remove("targets");
+                let mut augment = frontmatter;
+                if let Some(description) = description.clone() {
+                    augment.insert("description".into(), description);
+                }
+                frontmatter = Map::new();
+                if let Some(description) = description {
+                    frontmatter.insert("description".into(), description);
+                }
+                frontmatter.insert("augmentcode".into(), Value::Object(augment));
+            }
+            frontmatter.insert("root".into(), Value::Bool(false));
+            frontmatter.insert(
+                "targets".into(),
+                Value::Array(vec![Value::String("*".into())]),
+            );
+            if spec.name == "cursor" {
+                let mut ordered = Map::new();
+                for key in [
+                    "root",
+                    "localRoot",
+                    "targets",
+                    "description",
+                    "globs",
+                    "cursor",
+                ] {
+                    if let Some(value) = frontmatter.remove(key) {
+                        ordered.insert(key.into(), value);
+                    }
+                }
+                ordered.extend(frontmatter);
+                frontmatter = ordered;
+            }
+            let name = relative_slash(&base, &path)
+                .replace(".instructions.md", ".md")
+                .replace(".mdc", ".md");
+            model.rules.push(Rule {
+                relative_path: name,
+                frontmatter,
+                body: parsed.body,
+            });
+        }
+    }
+    if matches!(spec.name.as_str(), "roo" | "zoocode") {
+        load_roo_mode_rules(model, output_root, &spec.name)?;
+    }
+    if spec.name == "reasonix" && !global {
+        load_nested_reasonix_rules(model, output_root)?;
+    }
+    if spec.name == "takt" {
+        let base = output_root.join(".takt/facets/output-contracts");
+        for path in walk_files_following_links(&base)
+            .into_iter()
+            .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("md"))
+        {
+            let body = fs::read_to_string(&path)?.trim().to_owned();
+            let name = path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("contract")
+                .to_owned();
+            let mut frontmatter = Map::new();
+            frontmatter.insert(
+                "targets".into(),
+                Value::Array(vec![Value::String("takt".into())]),
+            );
+            frontmatter.insert(
+                "takt".into(),
+                Value::Object(Map::from_iter([(
+                    "facet".into(),
+                    Value::String("output-contracts".into()),
+                )])),
+            );
+            model.rules.push(Rule {
+                relative_path: format!("{name}.md"),
+                frontmatter,
+                body,
+            });
+        }
+    }
+    if let Some(local) = &paths.local_rule {
+        let path = output_root.join(local.path());
+        if path.is_file() {
+            let content = fs::read_to_string(&path)?;
+            let mut frontmatter = Map::new();
+            frontmatter.insert("root".into(), Value::Bool(false));
+            frontmatter.insert("localRoot".into(), Value::Bool(true));
+            frontmatter.insert(
+                "targets".into(),
+                Value::Array(vec![Value::String(spec.name.clone())]),
+            );
+            model.rules.push(Rule {
+                relative_path: local.file.clone(),
+                frontmatter,
+                body: content.trim().to_owned(),
+            });
+        }
+    }
+    if !global
+        && matches!(
+            spec.name.as_str(),
+            "agentsmd" | "kiro" | "kiro-cli" | "kiro-ide"
+        )
+    {
+        load_nested_agents_rules(model, output_root, &spec.name)?;
+    }
+    Ok(())
 }
 
 fn load_roo_mode_rules(model: &mut CanonicalModel, output_root: &Path, target: &str) -> Result<()> {
@@ -14751,5 +14787,35 @@ fn resolve_json_variant(
         jsonc
     } else {
         path.clone()
+    }
+}
+
+#[cfg(test)]
+mod generated_file_tests {
+    use super::*;
+
+    #[test]
+    fn invalid_generated_text_does_not_overwrite_existing_file() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "carabiner-invalid-generated-text-{}-{stamp}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("generated.md");
+        fs::write(&path, "original\n").unwrap();
+        let file = GeneratedFile {
+            relative_path: "generated.md".into(),
+            content: vec![0xff],
+            feature: Feature::Rules,
+            binary: false,
+        };
+
+        assert!(write_generated_file(&root, &file, Feature::Rules, false).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "original\n");
+        fs::remove_dir_all(root).unwrap();
     }
 }

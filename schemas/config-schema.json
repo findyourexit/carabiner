@@ -151,7 +151,7 @@
         "properties": {
           "source": {
             "type": "string",
-            "description": "Repository or package source. For GitHub transport: 'owner/repo', 'owner/repo@ref', or 'owner/repo@ref:path'. For git transport: a full git URL. For npm transport: a package name."
+            "description": "Repository or package source. For GitHub transport: 'owner/repo', 'owner/repo@ref', or 'owner/repo@ref:path'. For git transport: a native path or HTTPS, SSH, git, SCP-style, or file URL. For npm transport: a package name."
           },
           "skills": {
             "type": "array",
@@ -183,11 +183,11 @@
           },
           "registry": {
             "type": "string",
-            "description": "npm transport only. Base URL of the npm-compatible registry. Defaults to https://registry.npmjs.org."
+            "description": "npm transport only. HTTPS base URL of the npm-compatible registry. Defaults to https://registry.npmjs.org."
           },
           "tokenEnv": {
             "type": "string",
-            "description": "npm transport only. Environment variable holding the registry authentication token."
+            "description": "npm transport only. Environment variable holding the registry token. NPM_TOKEN is allowed by default; custom names require CARABINER_NPM_TOKEN_ENV_ALLOWLIST and private origins require CARABINER_NPM_TRUSTED_REGISTRIES."
           },
           "agent": {
             "type": "string",

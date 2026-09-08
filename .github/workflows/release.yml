@@ -6,9 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -17,10 +15,35 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   BINARY_NAME: carabiner
+  RUST_TOOLCHAIN: "1.88.0"
+  CROSS_VERSION: "0.2.5"
+
 
 jobs:
+  validate:
+    name: Validate release metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Validate tag and changelog
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          MANIFEST_VERSION="$(sed -nE 's/^version = "([^"]+)"$/\1/p' Cargo.toml)"
+          test -n "${MANIFEST_VERSION}"
+          test "${TAG_VERSION}" = "${MANIFEST_VERSION}"
+          awk '/^## \[Unreleased\]/{in_section=1; next} /^## \[/{in_section=0} in_section && /[^[:space:]]/ {found=1} END {exit !found}' CHANGELOG.md
+
   build:
     name: Build (${{ matrix.target }})
+    needs: validate
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     permissions:
@@ -35,41 +58,48 @@ jobs:
             runner: macos-14
             cross: false
             archive: tar.gz
+            update_asset: carabiner-darwin-arm64
           - target: x86_64-apple-darwin
             runner: macos-14
             cross: false
             archive: tar.gz
+            update_asset: carabiner-darwin-x64
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-24.04
             cross: false
             archive: tar.gz
+            update_asset: carabiner-linux-x64
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04
             cross: true
             archive: tar.gz
+            update_asset: carabiner-linux-arm64
           - target: x86_64-pc-windows-msvc
             runner: windows-2025
             cross: false
             archive: zip
+            update_asset: carabiner-windows-x64.exe
           - target: aarch64-pc-windows-msvc
             runner: windows-2025
             cross: true
             archive: zip
+            update_asset: carabiner-windows-arm64.exe
     steps:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 
-      - name: Install stable toolchain
+      - name: Install pinned toolchain
         shell: bash
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup target add ${{ matrix.target }}
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
+          rustup target add --toolchain "${RUST_TOOLCHAIN}" ${{ matrix.target }}
+          rustup override set "${RUST_TOOLCHAIN}"
 
-      - name: Install Cross
+      - name: Install pinned Cross
         if: matrix.cross
-        run: cargo install cross --locked
+        run: cargo install cross --version "${CROSS_VERSION}" --locked
 
       - name: Build
         shell: bash
@@ -87,11 +117,14 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           STAGING="${BINARY_NAME}-${VERSION}-${{ matrix.target }}"
           ARCHIVE="${STAGING}.tar.gz"
+          UPDATE_ASSET="${{ matrix.update_asset }}"
           mkdir "${STAGING}"
           cp "target/${{ matrix.target }}/release/${BINARY_NAME}" "${STAGING}/"
+          cp "target/${{ matrix.target }}/release/${BINARY_NAME}" "${UPDATE_ASSET}"
           cp LICENSE README.md "${STAGING}/"
           tar czf "${ARCHIVE}" "${STAGING}"
           echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+          echo "UPDATE_ASSET=${UPDATE_ASSET}" >> "$GITHUB_ENV"
 
       - name: Package (Windows)
         if: matrix.archive == 'zip'
@@ -100,29 +133,41 @@ jobs:
           $VERSION = "$env:GITHUB_REF_NAME" -replace '^v', ''
           $STAGING = "$env:BINARY_NAME-$VERSION-${{ matrix.target }}"
           $ARCHIVE = "$STAGING.zip"
+          $UPDATE_ASSET = "${{ matrix.update_asset }}"
           New-Item -ItemType Directory -Path $STAGING
           Copy-Item "target/${{ matrix.target }}/release/$env:BINARY_NAME.exe" "$STAGING/"
+          Copy-Item "target/${{ matrix.target }}/release/$env:BINARY_NAME.exe" $UPDATE_ASSET
           Copy-Item LICENSE, README.md "$STAGING/"
           Compress-Archive -Path $STAGING -DestinationPath $ARCHIVE
           echo "ARCHIVE=$ARCHIVE" >> $env:GITHUB_ENV
+          echo "UPDATE_ASSET=$UPDATE_ASSET" >> $env:GITHUB_ENV
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: ${{ env.ARCHIVE }}
 
-      - name: Upload archive
+
+      - name: Generate updater attestation
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: ${{ env.UPDATE_ASSET }}
+      - name: Upload release assets
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ matrix.target }}
-          path: ${{ env.ARCHIVE }}
+          path: |
+            ${{ env.ARCHIVE }}
+            ${{ env.UPDATE_ASSET }}
           if-no-files-found: error
 
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [validate, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      contents: write
     steps:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -170,7 +215,6 @@ jobs:
             artifacts/*-schema.json
 
       - name: Promote changelog
-        continue-on-error: true
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
@@ -196,6 +240,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: homebrew-tap
+    permissions:
+      contents: read
     steps:
       - name: Download macOS archives
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -274,19 +320,23 @@ jobs:
 
   publish-crate:
     name: Publish to crates.io
-    needs: build
+    needs: [validate, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: crates-io
+    permissions:
+      contents: read
     steps:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 
-      - name: Install stable toolchain
+      - name: Install pinned toolchain
         shell: bash
-        run: rustup toolchain install stable --profile minimal
+        run: |
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
+          rustup override set "${RUST_TOOLCHAIN}"
 
       - name: Publish (skip if already on crates.io)
         shell: bash

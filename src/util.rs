@@ -3,6 +3,7 @@ use serde_json::{Map, Value};
 use std::fs;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use walkdir::WalkDir;
 
 /// Remove JSONC comments and trailing commas without touching string literals.
@@ -164,7 +165,7 @@ pub fn assert_no_symlink_path(root: &Path, target: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn write_text_raw(path: &Path, content: &str, dry_run: bool) -> Result<bool> {
+fn assert_not_symlink(path: &Path) -> Result<()> {
     if fs::symlink_metadata(path)
         .map(|metadata| metadata.file_type().is_symlink())
         .unwrap_or(false)
@@ -174,60 +175,100 @@ pub fn write_text_raw(path: &Path, content: &str, dry_run: bool) -> Result<bool>
             path.display()
         ));
     }
+    Ok(())
+}
+
+fn write_bytes_atomically(path: &Path, content: &[u8]) -> Result<()> {
+    ensure_parent(path)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("failed to determine parent for {}", path.display()))?;
+    let permissions = fs::metadata(path)
+        .ok()
+        .map(|metadata| metadata.permissions());
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    for attempt in 0..16 {
+        let temporary = parent.join(format!(
+            ".carabiner-write-{}-{stamp}-{attempt}",
+            std::process::id()
+        ));
+        let mut file = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("failed to create temporary file for {}", path.display())
+                });
+            }
+        };
+        let write_result = file
+            .write_all(content)
+            .and_then(|_| file.sync_all())
+            .with_context(|| format!("failed to write {}", path.display()));
+        drop(file);
+        if let Err(error) = write_result {
+            let _ = fs::remove_file(&temporary);
+            return Err(error);
+        }
+        let replace_result = (|| -> Result<()> {
+            if let Some(permissions) = permissions.as_ref() {
+                fs::set_permissions(&temporary, permissions.clone())?;
+            }
+            fs::rename(&temporary, path)
+                .with_context(|| format!("failed to replace {}", path.display()))?;
+            Ok(())
+        })();
+        if replace_result.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        return replace_result;
+    }
+    Err(anyhow!(
+        "failed to create a unique temporary file for {}",
+        path.display()
+    ))
+}
+
+pub fn write_text_raw(path: &Path, content: &str, dry_run: bool) -> Result<bool> {
+    assert_not_symlink(path)?;
     let existing = fs::read_to_string(path).ok();
     if existing.as_deref() == Some(content) {
         return Ok(false);
     }
     if !dry_run {
-        ensure_parent(path)?;
-        fs::write(path, content.as_bytes())
-            .with_context(|| format!("failed to write {}", path.display()))?;
+        write_bytes_atomically(path, content.as_bytes())?;
     }
     Ok(true)
 }
+
 pub fn write_text(path: &Path, content: &str, dry_run: bool) -> Result<bool> {
-    if fs::symlink_metadata(path)
-        .map(|metadata| metadata.file_type().is_symlink())
-        .unwrap_or(false)
-    {
-        return Err(anyhow!(
-            "refusing to write through symbolic link {}",
-            path.display()
-        ));
-    }
+    assert_not_symlink(path)?;
     let normalized = add_trailing_newline(content);
     let existing = fs::read_to_string(path).ok();
     if existing.as_deref() == Some(normalized.as_str()) {
         return Ok(false);
     }
     if !dry_run {
-        ensure_parent(path)?;
-        fs::write(path, normalized.as_bytes())
-            .with_context(|| format!("failed to write {}", path.display()))?;
+        write_bytes_atomically(path, normalized.as_bytes())?;
     }
     Ok(true)
 }
 
 pub fn write_bytes(path: &Path, content: &[u8], dry_run: bool) -> Result<bool> {
-    if fs::symlink_metadata(path)
-        .map(|metadata| metadata.file_type().is_symlink())
-        .unwrap_or(false)
-    {
-        return Err(anyhow!(
-            "refusing to write through symbolic link {}",
-            path.display()
-        ));
-    }
+    assert_not_symlink(path)?;
     let existing = fs::read(path).ok();
     if existing.as_deref() == Some(content) {
         return Ok(false);
     }
     if !dry_run {
-        ensure_parent(path)?;
-        let mut file = fs::File::create(path)
-            .with_context(|| format!("failed to write {}", path.display()))?;
-        file.write_all(content)
-            .with_context(|| format!("failed to write {}", path.display()))?;
+        write_bytes_atomically(path, content)?;
     }
     Ok(true)
 }

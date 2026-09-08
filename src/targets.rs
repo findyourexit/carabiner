@@ -1,7 +1,7 @@
 use crate::model::{Feature, ALL_FEATURES};
 use std::collections::HashSet;
 
-pub const VERSION: &str = "0.1.1";
+pub const VERSION: &str = "0.1.2";
 pub const ALL_TOOL_TARGETS: [&str; 42] = [
     "agentsmd",
     "aiassistant",
@@ -955,7 +955,6 @@ fn feature_sets(name: &str) -> (HashSet<Feature>, HashSet<Feature>, HashSet<Feat
         "codexcli" => set_features(&[
             "rules",
             "mcp",
-            "commands",
             "subagents",
             "skills",
             "hooks",

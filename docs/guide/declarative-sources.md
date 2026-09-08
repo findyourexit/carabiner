@@ -47,7 +47,7 @@ Add a `sources` array to your `carabiner.jsonc`:
     // With ref pinning and subdirectory path (same syntax as fetch command)
     { "source": "owner/repo@v1.0.0:path/to/skills" },
 
-    // Git transport — works with any git remote (Azure DevOps, Bitbucket, etc.)
+    // Git transport — supports HTTPS, SSH, git, and file URLs
     {
       "source": "https://dev.azure.com/org/project/_git/repo",
       "transport": "git",
@@ -81,20 +81,20 @@ Each entry in `sources` accepts:
 
 | Property    | Type       | Description                                                                                                                                                                                                           |
 | ----------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `source`    | `string`   | Repository source. For GitHub transport: `owner/repo` or `owner/repo@ref:path`. For git transport: a full git URL. For npm transport: a package name (`pkg` or `@scope/pkg`).                                         |
+| `source`    | `string`   | Repository source. For GitHub transport: `owner/repo` or `owner/repo@ref:path`. For git transport: a native path or `https://`, `ssh://`, `git://`, `git@host:path`, or `file://` URL. For npm transport: a package name (`pkg` or `@scope/pkg`). |
 | `skills`    | `string[]` | Optional skill names to fetch. `"*"` selects all skills. When both `skills` and `rules` are omitted, all skills are fetched for backward compatibility.                                                               |
 | `rules`     | `string[]` | Optional rule names to fetch. Names may include or omit `.md`; `"*"` selects every direct `.md` file under `rulesPath`. Setting only `rules` fetches no skills.                                                       |
 | `transport` | `string`   | `"github"` (default) uses the GitHub REST API. `"git"` uses git CLI and works with any git remote. `"npm"` (experimental) fetches a package from an npm-compatible registry.                                          |
 | `ref`       | `string`   | Branch, tag, or ref to fetch from. Defaults to the remote's default branch. For GitHub transport, use the `@ref` source syntax. For npm transport: an exact version or dist-tag (defaults to `latest`).               |
 | `path`      | `string`   | Path to the skills directory within the repository. Defaults to `"skills"`. Set to `""`, `"."`, or `"./"` to target the entire repository root (see note below). For GitHub transport, use the `:path` source syntax. |
 | `rulesPath` | `string`   | Path to the rules directory within the repository or package. Defaults to `"rules"`. This is independent from the skills-only `path` field.                                                                           |
-| `registry`  | `string`   | npm transport only. Base URL of the npm-compatible registry. Defaults to `https://registry.npmjs.org`.                                                                                                                |
-| `tokenEnv`  | `string`   | npm transport only. Name of the environment variable holding the registry token. Defaults to `NPM_TOKEN`.                                                                                                             |
+| `registry`  | `string`   | npm transport only. HTTPS base URL of the npm-compatible registry. Defaults to `https://registry.npmjs.org`. |
+| `tokenEnv`  | `string`   | npm transport only. Name of the environment variable holding the registry token. `NPM_TOKEN` is allowed by default; other names require a local allowlist. |
 
 Rules are flat source files: only direct `.md` children of `rulesPath` are discovered. Nested rule files are not installed. Fetched rules are written to `.carabiner/rules/.curated/<rule-name>.md`; during generation they behave as if they were ordinary files directly under `.carabiner/rules/`.
 
 !!! info "Repository-root paths (`path: "."`)"
-    When `path` is `""`, `"."`, or `"./"` (with the `git` transport), Carabiner disables sparse-checkout and fetches the **entire** repository tree, then groups each top-level directory as a skill. This is useful for single-skill repositories whose `SKILL.md` lives at the repo root (`<repo>/SKILL.md`) rather than under a `skills/` container. Because the whole tree is fetched, prefer a narrower `path` for large repositories; the fetch is still bounded by Carabiner's file-count, total-size, and depth limits.
+    When `path` is `""`, `"."`, or `"./"` (with the `git` transport), Carabiner fetches the entire repository tree, then groups each top-level directory as a skill. This is useful for single-skill repositories whose `SKILL.md` lives at the repo root (`<repo>/SKILL.md`) rather than under a `skills/` container. Prefer a narrower `path` for large repositories.
 
 ## npm Transport (Experimental)
 
@@ -103,18 +103,20 @@ Rules are flat source files: only direct `.md` children of `rulesPath` are disco
 
 The `npm` transport fetches skills from any registry that implements the npm registry API. Because JFrog Artifactory, Sonatype Nexus, Verdaccio, GitHub Packages, and similar private registries all expose an npm-compatible API, a single transport with a configurable `registry` URL covers them all. This lets enterprises whose build environments cannot reach public GitHub distribute skills internally as npm packages.
 
+Only HTTPS registry and tarball URLs are accepted. Authenticated npm requests do not follow redirects, so private registries must return their metadata and tarball directly from the configured origin.
+
 How a package is fetched:
 
 1. The package metadata (packument) is fetched from `<registry>/<package>` using the abbreviated `application/vnd.npm.install-v1+json` form.
 2. The declared `ref` (an **exact version** or a **dist-tag** such as `latest` or `beta` — semver ranges are not supported) is resolved to a concrete version.
-3. The version's tarball is downloaded and verified against the registry's `dist.integrity` / `dist.shasum` metadata.
-4. The tarball is extracted **in memory** with a hardened minimal tar reader: only regular files are materialized (symlinks, hardlinks, and device entries are skipped), path traversal is rejected, and extraction is capped at 10,000 files / 100 MB to prevent decompression bombs.
+3. The version's tarball is downloaded and must verify against the registry's `dist.integrity` or `dist.shasum` metadata.
+4. The tarball is parsed by an in-process hardened reader into an isolated staging directory. Only regular files are materialized; symlinks, hardlinks, devices, duplicate paths, traversal, and overly deep paths are rejected. Extraction is capped at 10,000 files and 100 MiB of decompressed content.
 
 Package layout: skills are discovered the same way as for the git transports. Skill directories under `skills/` (or the configured `path`) are installed as `.carabiner/skills/.curated/<name>/`. Direct `.md` files under `rules/` (or the configured `rulesPath`) can be selected with `rules` and are installed under `.carabiner/rules/.curated/`. A single-skill package with `SKILL.md` at the package root is installed as one skill named after the package's base name (`@acme/my-skill` installs as `my-skill`); note that this root fallback installs the package's root-level files only, so prefer the `skills/<name>/` layout for skills that carry subdirectories such as `references/`.
 
-Authentication uses a bearer token from an environment variable: `NPM_TOKEN` by default, or the variable named by the per-source `tokenEnv` field. The token is sent as `Authorization: Bearer <token>` to the registry (and to the tarball host only when it matches the registry host). `.npmrc` files are intentionally **not** read.
+Authentication uses a bearer token from an environment variable: `NPM_TOKEN` is allowed for the default npmjs origin. To use a token with a private registry, explicitly add the registry origin to `CARABINER_NPM_TRUSTED_REGISTRIES`; custom `tokenEnv` names must also appear in `CARABINER_NPM_TOKEN_ENV_ALLOWLIST`. Both variables accept comma-separated values. Tokens are sent only to the configured tarball origin and authenticated requests reject redirects. `.npmrc` files are intentionally **not** read.
 
-Resolved versions are pinned in `carabiner-npm.lock.json` (next to `carabiner.lock`), which records the resolved version, the tarball integrity, and per-artifact content hashes. Commit it for reproducible installs; `--update` and `--frozen` behave the same as for git sources.
+Resolved versions are pinned in `carabiner-npm.lock.json` (next to `carabiner.lock`), which records the resolved version, the tarball integrity, and per-artifact content hashes. Commit it for reproducible installs. `--frozen` verifies the cached artifacts against those hashes, never contacts a remote or registry, and fails if the cache is missing or differs from the lockfile; run a normal `carabiner install` to restore the cache.
 
 ## How It Works
 
@@ -127,7 +129,7 @@ flowchart LR
 
 When `carabiner install` runs and `sources` is configured:
 
-1. **Lockfile resolution** — Each source's ref is resolved to a commit SHA and stored in `carabiner.lock` (at the project root). On subsequent runs the exact locked SHA is checked out for deterministic builds. npm-transport sources are pinned in a separate `carabiner-npm.lock.json` (resolved version + tarball integrity).
+1. **Lockfile resolution** — A normal install resolves each source ref to a commit SHA and records it in `carabiner.lock`; npm sources record a resolved version and tarball integrity in `carabiner-npm.lock.json`. `--frozen` validates the committed lockfile and cached artifacts without resolving or fetching any source.
 2. **Remote artifact listing** — The configured skills and rules directories are listed from the remote source.
 3. **Filtering** — Only the names selected by `skills` and `rules` are fetched. Omitting both fields retains the historical behavior of fetching all skills.
 4. **Precedence rules**:

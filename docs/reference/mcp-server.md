@@ -72,6 +72,8 @@ Markdown `get` responses contain the canonical relative path, parsed `frontmatte
 
 On `put`, Carabiner writes a YAML frontmatter block followed by the supplied body. When omitted, `frontmatter.targets` defaults to `["*"]`. If supplied, `targets` must be an array of `"*"` or valid target names. `description` must be a string, `root` and `localRoot` must be booleans, and `globs` must be an array of strings. A subagent requires `frontmatter.name`. A skill requires both `frontmatter.name` and `frontmatter.description`. A check can set `frontmatter.severity` to `low`, `medium`, `high`, or `critical`, and `frontmatter.tools` must be an array of strings.
 
+For every MCP file operation, Carabiner rejects a destination that contains a symbolic link at any existing path component. Remove or replace a symlinked canonical directory before using MCP to read, write, list, or delete its files.
+
 ### Singleton configuration features
 
 The singleton features manage one configuration file at a time. When more than one compatible file exists, Carabiner selects the first existing path in the order shown below. If none exists, `put` uses the first path.

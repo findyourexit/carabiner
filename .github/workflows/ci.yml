@@ -14,6 +14,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  msrv:
+    name: Rust 1.82.0
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install MSRV toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.82.0 --profile minimal
+          rustup override set 1.82.0
+
+      - name: Check all targets at MSRV
+        run: cargo check --all-targets --locked
+
+      - name: Run tests at MSRV
+        run: cargo test --locked
+
   verify:
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
