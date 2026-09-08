@@ -16,7 +16,7 @@ env:
   CARGO_TERM_COLOR: always
   BINARY_NAME: carabiner
   # renovate: datasource=rust-version depName=rust versioning=rust-release-channel
-  RUST_TOOLCHAIN: "1.88.0"
+  RUST_TOOLCHAIN: "1.98.0"
   # renovate: datasource=crate depName=cross versioning=semver
   CROSS_VERSION: "0.2.5"
 

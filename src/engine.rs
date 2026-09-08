@@ -599,18 +599,17 @@ fn load_source_markdown(root: &Path, subdir: &str, kind: SourceKind) -> Result<V
                 frontmatter.entry("root").or_insert(Value::Bool(false));
                 frontmatter.entry("localRoot").or_insert(Value::Bool(false));
             }
-            SourceKind::Subagents => {
+            SourceKind::Subagents
                 if frontmatter
                     .get("name")
                     .and_then(Value::as_str)
                     .filter(|name| !name.is_empty())
-                    .is_none()
-                {
-                    return Err(anyhow!(
-                        "Missing required subagent name in {}",
-                        path.display()
-                    ));
-                }
+                    .is_none() =>
+            {
+                return Err(anyhow!(
+                    "Missing required subagent name in {}",
+                    path.display()
+                ));
             }
             _ => {}
         }
