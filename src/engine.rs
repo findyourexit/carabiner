@@ -9671,7 +9671,9 @@ fn read_structured_file(path: &Path) -> Result<Value> {
     match path.extension().and_then(|extension| extension.to_str()) {
         Some("yaml") | Some("yml") => Ok(serde_yaml::from_str::<serde_yaml::Value>(&content)
             .map(|value| serde_json::to_value(value).unwrap_or(Value::Object(Map::new())))?),
-        Some("toml") => Ok(serde_json::to_value(content.parse::<toml::Value>()?)?),
+        Some("toml") => Ok(serde_json::to_value(toml::from_str::<toml::Value>(
+            &content,
+        )?)?),
         _ => parse_jsonc(&content),
     }
 }
