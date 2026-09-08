@@ -12,6 +12,12 @@ permissions:
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+env:
+  # renovate: datasource=rust-version depName=rust versioning=rust-release-channel
+  RUST_TOOLCHAIN: "1.88.0"
+  # renovate: datasource=crate depName=cargo-deny versioning=semver
+  CARGO_DENY_VERSION: "0.20.2"
+
 
 jobs:
   msrv:
@@ -59,13 +65,13 @@ jobs:
       - name: Install pinned toolchain
         shell: bash
         run: |
-          rustup toolchain install 1.88.0 --profile minimal --component clippy,rustfmt
-          rustup override set 1.88.0
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal --component clippy,rustfmt
+          rustup override set "${RUST_TOOLCHAIN}"
           rustc --version --verbose
 
       - name: Install cargo-deny
         shell: bash
-        run: cargo +stable install cargo-deny --version 0.20.2 --locked
+        run: cargo +stable install cargo-deny --version "${CARGO_DENY_VERSION}" --locked
 
       - name: Check formatting
         if: runner.os == 'Linux'

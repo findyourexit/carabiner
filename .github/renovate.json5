@@ -1,42 +1,104 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", ":disableDependencyDashboard"],
-  "enabledManagers": ["cargo", "github-actions", "pip_requirements"],
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+  ],
+  "enabledManagers": [
+    "cargo",
+    "custom.regex",
+    "github-actions",
+    "pip-compile",
+    "rust-toolchain",
+  ],
+  "semanticCommits": "enabled",
+  "dependencyDashboard": true,
   "automerge": false,
-  "dependencyDashboard": false,
   "minimumReleaseAge": "7 days",
-  "prConcurrentLimit": 2,
+  "prConcurrentLimit": 3,
   "prHourlyLimit": 1,
   "rangeStrategy": "bump",
   "separateMajorMinor": true,
   "schedule": ["before 5am on monday"],
   "lockFileMaintenance": {
     "enabled": true,
-    "schedule": ["before 5am on the first day of the month"]
+    "schedule": ["before 5am on the first day of the month"],
+  },
+  "pip-compile": {
+    "managerFilePatterns": ["/(^|/)requirements-docs\\.txt$/"],
+  },
+  "pip_requirements": {
+    "enabled": false,
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Maintain explicitly versioned CI tools",
+      "managerFilePatterns": ["/(^|/)\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+) versioning=(?<versioning>[^\\s]+)\\s+[A-Z][A-Z0-9_]*:\\s+\"(?<currentValue>[^\"]+)\"",
+      ],
+      "versioningTemplate": "{{{versioning}}}",
+    },
+    {
+      "customType": "regex",
+      "description": "Maintain matrix GitHub-hosted runner images",
+      "managerFilePatterns": ["/(^|/)\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": [
+        "(?:^|\\n)[ \\t]*(?:-\\s+)?(?:os|runner):\\s+(?<depName>ubuntu|macos|windows)-(?<currentValue>[0-9][A-Za-z0-9.-]*)",
+      ],
+      "datasourceTemplate": "github-runners",
+      "versioningTemplate": "docker",
+      "depTypeTemplate": "github-runner",
+    },
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "prCreation": "immediate",
+    "schedule": ["at any time"],
   },
   "packageRules": [
     {
-      "description": "Group core runtime dependencies",
+      "description": "Group compatible Rust library updates",
       "matchManagers": ["cargo"],
-      "matchPackageNames": ["anyhow", "base64", "chrono", "clap", "flate2", "indexmap", "libc", "serde", "serde_json", "serde_yaml_ng", "sha1", "sha2", "tar", "toml", "walkdir"],
-      "groupName": "runtime dependencies"
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "Rust non-major dependencies",
+      "groupSlug": "rust-non-major-dependencies",
     },
     {
-      "description": "Keep pinned GitHub Actions updates separate from Rust crates",
+      "description": "Keep Rust compiler declarations synchronized",
+      "matchManagers": ["rust-toolchain", "custom.regex"],
+      "matchDepNames": ["rust"],
+      "groupName": "Rust toolchain",
+      "groupSlug": "rust-toolchain",
+    },
+    {
+      "description": "Group CI tooling updated from crates.io",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["cargo-deny", "cross"],
+      "groupName": "CI Rust tools",
+      "groupSlug": "ci-rust-tools",
+    },
+    {
+      "description": "Keep GitHub Action digest updates small and auditable",
       "matchManagers": ["github-actions"],
-      "groupName": "github actions",
-      "pinDigests": true
+      "matchDepTypes": ["action", "workflow"],
+      "matchUpdateTypes": ["digest"],
+      "groupName": "GitHub Action digest updates",
+      "groupSlug": "github-action-digests",
     },
     {
-      "description": "Update locked documentation dependencies together",
-      "matchManagers": ["pip_requirements"],
-      "groupName": "documentation dependencies"
+      "description": "Keep GitHub-hosted runner image changes isolated",
+      "matchManagers": ["github-actions", "custom.regex"],
+      "matchDepTypes": ["github-runner"],
+      "groupName": "GitHub-hosted runner images",
+      "groupSlug": "github-runner-images",
     },
     {
-      "description": "Never automerge security or vulnerability remediation",
-      "matchCategories": ["security"],
-      "automerge": false,
-      "minimumReleaseAge": null
-    }
-  ]
+      "description": "Keep documentation dependency updates and hashes together",
+      "matchManagers": ["pip-compile"],
+      "groupName": "Documentation Python dependencies",
+      "groupSlug": "documentation-python-dependencies",
+    },
+  ],
 }

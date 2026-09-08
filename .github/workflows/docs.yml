@@ -7,6 +7,7 @@ on:
       - "zensical.toml"
       - ".github/workflows/docs.yml"
       - ".github/requirements-docs.txt"
+      - ".github/requirements-docs.in"
   push:
     branches:
       - main
@@ -15,6 +16,7 @@ on:
       - "zensical.toml"
       - ".github/workflows/docs.yml"
       - ".github/requirements-docs.txt"
+      - ".github/requirements-docs.in"
   workflow_dispatch:
 
 permissions:
@@ -23,10 +25,6 @@ permissions:
 concurrency:
   group: docs-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  ZENSICAL_VERSION: "0.0.57"
-  ZENSICAL_SHA256: "021dd8fb70d1816cd012684fcf45d32b8f88a0cd28b7cbe71e5f8564f6d5764d"
 
 jobs:
   build:
@@ -45,14 +43,7 @@ jobs:
 
       - name: Install verified documentation dependencies
         shell: bash
-        run: |
-          python -m pip install --disable-pip-version-check --require-hashes -r .github/requirements-docs.txt
-          WHEEL="zensical-${ZENSICAL_VERSION}-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
-          curl --fail --location --silent --show-error --retry 2 \
-            --output "${WHEEL}" \
-            "https://github.com/zensical/zensical/releases/download/v${ZENSICAL_VERSION}/${WHEEL}"
-          echo "${ZENSICAL_SHA256}  ${WHEEL}" | sha256sum --check --status
-          python -m pip install --disable-pip-version-check --no-deps "${WHEEL}"
+        run: python -m pip install --disable-pip-version-check --require-hashes -r .github/requirements-docs.txt
 
       - name: Build documentation
         run: zensical build --clean
