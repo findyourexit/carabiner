@@ -459,6 +459,228 @@ fn ensure_input_roots(config: &Config) -> Result<()> {
     Ok(())
 }
 
+const CANONICAL_HOOK_EVENTS: &[&str] = &[
+    "sessionStart",
+    "sessionEnd",
+    "preToolUse",
+    "postToolUse",
+    "preModelInvocation",
+    "postModelInvocation",
+    "beforeSubmitPrompt",
+    "stop",
+    "subagentStop",
+    "preCompact",
+    "postCompact",
+    "postToolUseFailure",
+    "subagentStart",
+    "beforeShellExecution",
+    "afterShellExecution",
+    "beforeMCPExecution",
+    "afterMCPExecution",
+    "beforeReadFile",
+    "afterFileEdit",
+    "afterAgentResponse",
+    "afterAgentThought",
+    "beforeTabFileRead",
+    "afterTabFileEdit",
+    "permissionRequest",
+    "notification",
+    "setup",
+    "afterError",
+    "worktreeCreate",
+    "worktreeRemove",
+    "workspaceOpen",
+    "messageDisplay",
+    "todoCreated",
+    "todoCompleted",
+    "stopFailure",
+    "stopCancelled",
+    "instructionsLoaded",
+    "userPromptExpansion",
+    "postToolBatch",
+    "permissionDenied",
+    "taskCreated",
+    "taskCompleted",
+    "teammateIdle",
+    "configChange",
+    "cwdChanged",
+    "fileChanged",
+    "directoryAdded",
+    "elicitation",
+    "elicitationResult",
+    "sessionDelete",
+];
+
+fn validate_canonical_hook_events(value: &Value) -> Result<()> {
+    let Some(raw_hooks) = value.get("hooks") else {
+        return Ok(());
+    };
+    let hooks = raw_hooks
+        .as_object()
+        .ok_or_else(|| anyhow!("Canonical hooks source 'hooks' must be an object."))?;
+    for event in hooks.keys() {
+        if !CANONICAL_HOOK_EVENTS.contains(&event.as_str()) {
+            return Err(anyhow!(
+                "Unknown canonical hook event '{event}'. Use a tool-specific hook override block for native events."
+            ));
+        }
+    }
+    Ok(())
+}
+
+const CANONICAL_MCP_TRANSPORTS: &[&str] =
+    &["local", "stdio", "sse", "http", "ws", "streamable-http"];
+
+fn validate_mcp_server_transports(
+    servers: &Map<String, Value>,
+    location: &str,
+    allow_null: bool,
+) -> Result<()> {
+    for (name, value) in servers {
+        if allow_null && value.is_null() {
+            continue;
+        }
+        let server = value
+            .as_object()
+            .ok_or_else(|| anyhow!("MCP server '{name}' in {location} must be an object."))?;
+        let has_command = match server.get("command") {
+            None => false,
+            Some(Value::String(command)) if !command.is_empty() => true,
+            Some(Value::Array(parts))
+                if !parts.is_empty() && parts.iter().all(Value::is_string) =>
+            {
+                true
+            }
+            Some(_) => {
+                return Err(anyhow!(
+                    "MCP server '{name}' in {location} field 'command' must be a non-empty string or array of strings."
+                ));
+            }
+        };
+        let mut has_endpoint = false;
+        for field in ["url", "httpUrl"] {
+            let Some(value) = server.get(field) else {
+                continue;
+            };
+            if value.as_str().is_none_or(|value| value.is_empty()) {
+                return Err(anyhow!(
+                    "MCP server '{name}' in {location} field '{field}' must be a non-empty string."
+                ));
+            }
+            has_endpoint = true;
+        }
+        let mut transport = None;
+        for field in ["type", "transport"] {
+            let Some(value) = server.get(field) else {
+                continue;
+            };
+            let value = value.as_str().ok_or_else(|| {
+                anyhow!("MCP server '{name}' in {location} field '{field}' must be a string.")
+            })?;
+            if transport.is_some() {
+                return Err(anyhow!(
+                    "MCP server '{name}' in {location} must use either 'type' or 'transport', not both."
+                ));
+            }
+            transport = Some((field, value));
+        }
+        let Some((field, transport)) = transport else {
+            if has_command && has_endpoint {
+                return Err(anyhow!(
+                    "MCP server '{name}' in {location} must set 'type' or 'transport' when both a command and URL are present."
+                ));
+            }
+            continue;
+        };
+        if !CANONICAL_MCP_TRANSPORTS.contains(&transport) {
+            return Err(anyhow!(
+                "MCP server '{name}' in {location} field '{field}' has unsupported transport '{transport}'."
+            ));
+        }
+        if matches!(transport, "local" | "stdio") && !has_command {
+            return Err(anyhow!(
+                "MCP server '{name}' in {location} with {field} '{transport}' must define a non-empty command."
+            ));
+        }
+        if matches!(transport, "sse" | "http" | "ws" | "streamable-http") && !has_endpoint {
+            return Err(anyhow!(
+                "MCP server '{name}' in {location} with {field} '{transport}' must define a non-empty 'url' or 'httpUrl'."
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_canonical_mcp_servers(value: &Value) -> Result<()> {
+    let root = value
+        .as_object()
+        .ok_or_else(|| anyhow!("Canonical MCP source must be an object."))?;
+    let servers = root
+        .get("mcpServers")
+        .and_then(Value::as_object)
+        .ok_or_else(|| anyhow!("Canonical MCP source 'mcpServers' must be an object."))?;
+    validate_mcp_server_transports(servers, "mcpServers", false)?;
+    for (target, block) in root {
+        if matches!(target.as_str(), "mcpServers" | "$schema") {
+            continue;
+        }
+        let Some(raw_overrides) = block.get("mcpServers") else {
+            continue;
+        };
+        let overrides = raw_overrides.as_object().ok_or_else(|| {
+            anyhow!("Canonical MCP source '{target}.mcpServers' must be an object.")
+        })?;
+        validate_mcp_server_transports(overrides, &format!("{target}.mcpServers"), true)?;
+    }
+    Ok(())
+}
+
+const CANONICAL_PERMISSION_ACTIONS: &[&str] = &["allow", "ask", "deny"];
+
+fn validate_canonical_permission_rules(rules: &Map<String, Value>) -> Result<()> {
+    for (category, value) in rules {
+        match value {
+            Value::String(action) if CANONICAL_PERMISSION_ACTIONS.contains(&action.as_str()) => {}
+            Value::Object(patterns) => {
+                for (pattern, action) in patterns {
+                    if !action
+                        .as_str()
+                        .is_some_and(|action| CANONICAL_PERMISSION_ACTIONS.contains(&action))
+                    {
+                        return Err(anyhow!(
+                            "Canonical permissions source 'permission.{category}.{pattern}' must be 'allow', 'ask', or 'deny'."
+                        ));
+                    }
+                }
+            }
+            Value::String(_) => {
+                return Err(anyhow!(
+                    "Canonical permissions source 'permission.{category}' must be 'allow', 'ask', or 'deny'."
+                ));
+            }
+            _ => {
+                return Err(anyhow!(
+                    "Canonical permissions source 'permission.{category}' must be an action string or a map of glob patterns to actions."
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_canonical_permissions(value: &Value) -> Result<()> {
+    let root = value
+        .as_object()
+        .ok_or_else(|| anyhow!("Canonical permissions source must be an object."))?;
+    let Some(value) = root.get("permission") else {
+        return Ok(());
+    };
+    let rules = value
+        .as_object()
+        .ok_or_else(|| anyhow!("Canonical permissions source 'permission' must be an object."))?;
+    validate_canonical_permission_rules(rules)
+}
+
 fn load_model(input_roots: &[PathBuf]) -> Result<CanonicalModel> {
     let mut model = CanonicalModel::default();
     let mut rules_by_name: HashMap<String, Rule> = HashMap::new();
@@ -507,13 +729,25 @@ fn load_model(input_roots: &[PathBuf]) -> Result<CanonicalModel> {
     model.subagents = sorted_values(subagents_by_name);
     model.checks = sorted_values(checks_by_name);
     model.skills = sorted_values(skills_by_name);
-    model.mcp = load_singleton(input_roots, &["mcp.jsonc", "mcp.json", ".mcp.json"], true)?;
-    model.hooks = load_singleton(input_roots, &["hooks.jsonc", "hooks.json"], false)?;
-    model.permissions = load_singleton(
+    let mcp = load_singleton(input_roots, &["mcp.jsonc", "mcp.json", ".mcp.json"], true)?;
+    if let Some(value) = mcp.as_ref() {
+        validate_canonical_mcp_servers(value)?;
+    }
+    model.mcp = mcp;
+    let hooks = load_singleton(input_roots, &["hooks.jsonc", "hooks.json"], false)?;
+    if let Some(value) = hooks.as_ref() {
+        validate_canonical_hook_events(value)?;
+    }
+    model.hooks = hooks;
+    let permissions = load_singleton(
         input_roots,
         &["permissions.jsonc", "permissions.json"],
         false,
     )?;
+    if let Some(value) = permissions.as_ref() {
+        validate_canonical_permissions(value)?;
+    }
+    model.permissions = permissions;
     model.ignore = load_ignore(input_roots);
     Ok(model)
 }
@@ -4415,6 +4649,52 @@ fn canonical_command_parts(object: &Map<String, Value>) -> (Option<String>, Vec<
     }
 }
 
+fn mcp_standard_servers(servers: &Map<String, Value>) -> Map<String, Value> {
+    servers
+        .iter()
+        .filter_map(|(name, value)| {
+            let object = value.as_object()?;
+            let transport = object
+                .get("type")
+                .or_else(|| object.get("transport"))
+                .and_then(Value::as_str)
+                .map(|value| match value {
+                    "local" => "stdio",
+                    other => other,
+                })
+                .or_else(|| {
+                    if object.contains_key("command") {
+                        Some("stdio")
+                    } else if object.contains_key("url") || object.contains_key("httpUrl") {
+                        Some("http")
+                    } else {
+                        None
+                    }
+                });
+            let mut output = object.clone();
+            output.remove("transport");
+            if let Some(transport) = transport {
+                output.insert("type".into(), Value::String(transport.into()));
+            }
+            if let Some(url) = output.remove("httpUrl") {
+                output.entry("url").or_insert(url);
+            }
+            if matches!(object.get("command"), Some(Value::Array(_))) {
+                let (command, args) = canonical_command_parts(object);
+                if let Some(command) = command {
+                    output.insert("command".into(), Value::String(command));
+                    if args.is_empty() {
+                        output.remove("args");
+                    } else {
+                        output.insert("args".into(), Value::Array(args));
+                    }
+                }
+            }
+            Some((name.clone(), Value::Object(output)))
+        })
+        .collect()
+}
+
 fn mcp_vibe_servers(servers: &Map<String, Value>) -> Vec<Value> {
     servers
         .iter()
@@ -5082,6 +5362,7 @@ fn build_mcp_output(
             "warp" => mcp_warp_servers(servers),
             "roo" | "zoocode" => mcp_roo_servers(servers),
             "rovodev" => mcp_rovodev_servers(servers),
+            "claudecode" | "claudecode-legacy" => mcp_standard_servers(servers),
             _ => servers.clone(),
         }
     };
@@ -8812,6 +9093,15 @@ fn effective_permissions(source: &Value, target: &str) -> Map<String, Value> {
             for (key, value) in overrides {
                 permission.insert(key.clone(), value.clone());
             }
+        }
+    }
+    for rules in permission.values_mut() {
+        let action = rules
+            .as_str()
+            .filter(|action| CANONICAL_PERMISSION_ACTIONS.contains(action))
+            .map(ToOwned::to_owned);
+        if let Some(action) = action {
+            *rules = Value::Object(Map::from_iter([("*".into(), Value::String(action))]));
         }
     }
     permission

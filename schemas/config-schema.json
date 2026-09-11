@@ -11,20 +11,20 @@
       "description": "URL of the JSON Schema for this file."
     },
     "targets": {
-      "description": "AI coding tools to generate configuration for. Use '*' to select every supported tool. In object form each key is a target name and each value is a feature list or feature options object — 'features' must then be omitted.",
+      "description": "Target names to generate configuration for. Use '*' to select every supported non-legacy target. In object form each key is a target name and each value is a feature list or feature options object — 'features' must then be omitted.",
       "oneOf": [
-        { "type": "string" },
         {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "$ref": "#/$defs/targetSelector" }
         },
         {
           "type": "object",
+          "propertyNames": { "$ref": "#/$defs/targetName" },
           "additionalProperties": {
             "oneOf": [
               {
                 "type": "array",
-                "items": { "type": "string" }
+                "items": { "$ref": "#/$defs/featureName" }
               },
               { "type": "object" }
             ]
@@ -34,35 +34,27 @@
     },
     "features": {
       "description": "Features to generate. Valid values: rules, commands, subagents, skills, mcp, hooks, permissions, checks, ignore. Omit when 'targets' is in object form.",
-      "oneOf": [
-        { "type": "string" },
-        {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": ["rules", "commands", "subagents", "skills", "mcp", "hooks", "permissions", "checks", "ignore", "*"]
-          }
-        }
-      ]
+      "type": "array",
+      "items": { "$ref": "#/$defs/featureName" }
     },
     "outputRoots": {
       "description": "Directories where generated files are written. Defaults to the project root ('.'). In object form each key is a target name and each value is a path or array of paths.",
       "oneOf": [
-        { "type": "string" },
         {
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string" }
+          "items": { "type": "string", "minLength": 1 }
         },
         {
           "type": "object",
+          "propertyNames": { "$ref": "#/$defs/targetName" },
           "additionalProperties": {
             "oneOf": [
-              { "type": "string" },
+              { "type": "string", "minLength": 1 },
               {
                 "type": "array",
                 "minItems": 1,
-                "items": { "type": "string" }
+                "items": { "type": "string", "minLength": 1 }
               }
             ]
           }
@@ -71,18 +63,19 @@
     },
     "inputRoot": {
       "type": "string",
+      "minLength": 1,
       "description": "Deprecated. Parent directory of a canonical source tree. Carabiner appends '.carabiner/' to derive the source tree path. Use 'inputRoots' instead."
     },
     "inputRoots": {
       "type": "array",
       "minItems": 1,
-      "items": { "type": "string" },
+      "items": { "type": "string", "minLength": 1 },
       "description": "Ordered list of canonical source tree directories. The first root must exist. Later roots are optional overlays and override earlier roots for matching relative paths."
     },
     "delete": {
       "type": "boolean",
       "default": false,
-      "description": "Delete orphaned generated files before writing. Files no longer produced by any source are removed."
+      "description": "Remove orphaned generated files after rendering the current output. Files no longer produced by any source are removed."
     },
     "global": {
       "type": "boolean",
@@ -203,6 +196,44 @@
           }
         }
       }
+    }
+  },
+  "allOf": [
+    {
+      "not": {
+        "required": ["inputRoot", "inputRoots"]
+      }
+    },
+    {
+      "not": {
+        "required": ["targets", "features"],
+        "properties": {
+          "targets": { "type": "object" }
+        }
+      }
+    },
+    {
+      "not": {
+        "required": ["dryRun", "check"],
+        "properties": {
+          "dryRun": { "const": true },
+          "check": { "const": true }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "targetName": {
+      "type": "string",
+      "enum": ["agentsmd", "aiassistant", "amp", "antigravity-cli", "antigravity-ide", "antigravity-plugin", "augmentcode", "augmentcode-legacy", "claudecode", "claudecode-legacy", "cline", "codexcli", "copilot", "copilotcli", "cursor", "deepagents", "factorydroid", "goose", "grokcli", "hermesagent", "junie", "kilo", "kimi-code", "kiro", "kiro-cli", "kiro-ide", "musecode", "opencode", "pi", "qwencode", "reasonix", "replit", "roo", "rovodev", "takt", "vibe", "warp", "devin", "zed", "zoocode", "claudecode-plugin", "agentsskills"]
+    },
+    "targetSelector": {
+      "type": "string",
+      "enum": ["agentsmd", "aiassistant", "amp", "antigravity-cli", "antigravity-ide", "antigravity-plugin", "augmentcode", "augmentcode-legacy", "claudecode", "claudecode-legacy", "cline", "codexcli", "copilot", "copilotcli", "cursor", "deepagents", "factorydroid", "goose", "grokcli", "hermesagent", "junie", "kilo", "kimi-code", "kiro", "kiro-cli", "kiro-ide", "musecode", "opencode", "pi", "qwencode", "reasonix", "replit", "roo", "rovodev", "takt", "vibe", "warp", "devin", "zed", "zoocode", "claudecode-plugin", "agentsskills", "*"]
+    },
+    "featureName": {
+      "type": "string",
+      "enum": ["rules", "commands", "subagents", "skills", "mcp", "hooks", "permissions", "checks", "ignore", "*"]
     }
   }
 }

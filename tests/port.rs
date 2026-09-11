@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use carabiner::config::ConfigOptions;
 use carabiner::engine::{
     export_canonical_to_tool_directory, generate, import_from_tool, ConvertOptions,
@@ -216,6 +218,35 @@ fn shared_feature_outputs_are_idempotent() {
     assert!(project
         .join(".clinerules/hooks/carabiner-hooks.json")
         .is_file());
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn rejects_unknown_shared_hook_event() {
+    let project = temp_project("unknown-hook-event");
+    fs::create_dir_all(project.join(".carabiner")).unwrap();
+    fs::write(
+        project.join(".carabiner/hooks.jsonc"),
+        r#"{"hooks":{"unknownEvent":[{"command":"echo ignored"}]}}"#,
+    )
+    .unwrap();
+    let error = generate(config(&project, &["claudecode"], &["hooks"])).unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("Unknown canonical hook event 'unknownEvent'"));
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn rejects_nonobject_shared_hooks() {
+    let project = temp_project("nonobject-hooks");
+    fs::create_dir_all(project.join(".carabiner")).unwrap();
+    fs::write(project.join(".carabiner/hooks.jsonc"), r#"{"hooks":[]}"#).unwrap();
+
+    let error = generate(config(&project, &["claudecode"], &["hooks"])).unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("Canonical hooks source 'hooks' must be an object."));
     fs::remove_dir_all(project).unwrap();
 }
 
@@ -953,6 +984,429 @@ fn installs_file_url_git_source() {
         .join(".carabiner/skills/.curated/demo/SKILL.md")
         .is_file());
 
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn fetches_repository_root_skills() {
+    let project = temp_project("fetch-root-skills");
+    let source = project.join("source");
+    fs::create_dir_all(source.join("skills/demo")).unwrap();
+    fs::write(
+        source.join("skills/demo/SKILL.md"),
+        "---\nname: demo\ndescription: Demo\ntargets: [\"*\"]\n---\n\nRoot skill\n",
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .args(["fetch", source.to_str().unwrap(), "--features", "skills"])
+        .current_dir(&project)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(project.join(".carabiner/skills/demo/SKILL.md").is_file());
+
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn fetch_authenticates_https_github_sources_without_token_url_leakage() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let project = temp_project("github-fetch-auth");
+    let bin = project.join("bin");
+    let auth_key = project.join("auth-key");
+    let auth_value = project.join("auth-value");
+    let arguments = project.join("arguments");
+    fs::create_dir_all(&bin).unwrap();
+    let git = bin.join("git");
+    fs::write(
+        &git,
+        r#"#!/bin/sh
+printf '%s\n' "$GIT_CONFIG_KEY_0" > "$AUTH_KEY"
+printf '%s\n' "$GIT_CONFIG_VALUE_0" > "$AUTH_VALUE"
+printf '%s\n' "$@" > "$ARGUMENTS"
+destination=""
+for argument in "$@"; do
+  destination="$argument"
+done
+mkdir -p "$destination/skills/demo"
+printf '%s\n' '---' 'name: demo' 'description: Demo' 'targets: ["*"]' '---' '' 'Demo' > "$destination/skills/demo/SKILL.md"
+"#,
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&git).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&git, permissions).unwrap();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .args(["fetch", "owner/repo", "--token", "cli-token"])
+        .current_dir(&project)
+        .env("PATH", &path)
+        .env("AUTH_KEY", &auth_key)
+        .env("AUTH_VALUE", &auth_value)
+        .env("ARGUMENTS", &arguments)
+        .env("GITHUB_TOKEN", "environment-token")
+        .env_remove("GH_TOKEN")
+        .env_remove("GIT_CONFIG_COUNT")
+        .env_remove("GIT_CONFIG_KEY_0")
+        .env_remove("GIT_CONFIG_VALUE_0")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&auth_key).unwrap().trim(),
+        "http.https://github.com/.extraheader"
+    );
+    assert_eq!(
+        fs::read_to_string(&auth_value).unwrap().trim(),
+        format!(
+            "AUTHORIZATION: Basic {}",
+            STANDARD.encode("x-access-token:cli-token")
+        )
+    );
+    assert!(!fs::read_to_string(&arguments)
+        .unwrap()
+        .contains("cli-token"));
+    assert!(project.join(".carabiner/skills/demo/SKILL.md").is_file());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .args(["fetch", "owner/repo"])
+        .current_dir(&project)
+        .env("PATH", &path)
+        .env("AUTH_KEY", &auth_key)
+        .env("AUTH_VALUE", &auth_value)
+        .env("ARGUMENTS", &arguments)
+        .env("GITHUB_TOKEN", "environment-token")
+        .env_remove("GH_TOKEN")
+        .env_remove("GIT_CONFIG_COUNT")
+        .env_remove("GIT_CONFIG_KEY_0")
+        .env_remove("GIT_CONFIG_VALUE_0")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&auth_value).unwrap().trim(),
+        format!(
+            "AUTHORIZATION: Basic {}",
+            STANDARD.encode("x-access-token:environment-token")
+        )
+    );
+
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn install_uses_github_token_for_clone_and_lock_resolution() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let project = temp_project("github-install-auth");
+    let bin = project.join("bin");
+    let clone_key = project.join("clone-key");
+    let clone_auth = project.join("clone-auth");
+    let revision_key = project.join("revision-key");
+    let revision_auth = project.join("revision-auth");
+    fs::create_dir_all(&bin).unwrap();
+    fs::write(
+        project.join("carabiner.jsonc"),
+        r#"{"sources":[{"source":"owner/repo","skills":["demo"]}]}"#,
+    )
+    .unwrap();
+    let git = bin.join("git");
+    fs::write(
+        &git,
+        r#"#!/bin/sh
+case "$1" in
+  clone)
+    printf '%s\n' "$GIT_CONFIG_KEY_0" > "$CLONE_KEY"
+    printf '%s\n' "$GIT_CONFIG_VALUE_0" > "$CLONE_AUTH"
+    destination=""
+    for argument in "$@"; do
+      destination="$argument"
+    done
+    mkdir -p "$destination/skills/demo"
+    printf '%s\n' '---' 'name: demo' 'description: Demo' 'targets: ["*"]' '---' '' 'Demo' > "$destination/skills/demo/SKILL.md"
+    ;;
+  ls-remote)
+    printf '%s\n' "$GIT_CONFIG_KEY_0" > "$REVISION_KEY"
+    printf '%s\n' "$GIT_CONFIG_VALUE_0" > "$REVISION_AUTH"
+    printf '%s\n' '0123456789012345678901234567890123456789 HEAD'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+"#,
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&git).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&git, permissions).unwrap();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_carabiner"))
+        .args(["install", "--token", "cli-token", "--silent"])
+        .current_dir(&project)
+        .env("PATH", &path)
+        .env("CLONE_KEY", &clone_key)
+        .env("CLONE_AUTH", &clone_auth)
+        .env("REVISION_KEY", &revision_key)
+        .env("REVISION_AUTH", &revision_auth)
+        .env_remove("GITHUB_TOKEN")
+        .env_remove("GH_TOKEN")
+        .env_remove("GIT_CONFIG_COUNT")
+        .env_remove("GIT_CONFIG_KEY_0")
+        .env_remove("GIT_CONFIG_VALUE_0")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected_header = format!(
+        "AUTHORIZATION: Basic {}",
+        STANDARD.encode("x-access-token:cli-token")
+    );
+    assert_eq!(
+        fs::read_to_string(&clone_key).unwrap().trim(),
+        "http.https://github.com/.extraheader"
+    );
+    assert_eq!(
+        fs::read_to_string(&clone_auth).unwrap().trim(),
+        expected_header
+    );
+    assert_eq!(
+        fs::read_to_string(&revision_key).unwrap().trim(),
+        "http.https://github.com/.extraheader"
+    );
+    assert_eq!(
+        fs::read_to_string(&revision_auth).unwrap().trim(),
+        expected_header
+    );
+    let lock: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(project.join("carabiner.lock")).unwrap()).unwrap();
+    assert_eq!(
+        lock["sources"]["owner/repo"]["resolvedRef"],
+        "0123456789012345678901234567890123456789"
+    );
+
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn generates_documented_canonical_mcp_forms() {
+    let project = temp_project("canonical-mcp-forms");
+    fs::create_dir_all(project.join(".carabiner")).unwrap();
+    fs::write(
+        project.join(".carabiner/mcp.jsonc"),
+        r#"{
+  "mcpServers": {
+    "implicit": { "command": "echo", "args": ["implicit"] },
+    "implicit-remote": { "url": "https://example.com/implicit" },
+    "local": { "type": "local", "command": "echo" },
+    "streamable": { "transport": "streamable-http", "httpUrl": "https://example.com/mcp" },
+    "array-command": { "command": ["node", "server.js"], "args": ["--log"] },
+    "websocket": { "type": "ws", "url": "wss://example.com/mcp" },
+    "shared": { "command": "echo" }
+  },
+  "claudecode": {
+    "mcpServers": {
+      "shared": null,
+      "claude-only": { "command": "echo" }
+    }
+  }
+}"#,
+    )
+    .unwrap();
+
+    generate(config(&project, &["claudecode"], &["mcp"])).unwrap();
+    let generated: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(project.join(".mcp.json")).unwrap()).unwrap();
+    let servers = generated["mcpServers"].as_object().unwrap();
+    assert_eq!(servers["implicit"]["command"], "echo");
+    assert_eq!(servers["implicit"]["type"], "stdio");
+    assert_eq!(servers["implicit-remote"]["type"], "http");
+    assert_eq!(
+        servers["implicit-remote"]["url"],
+        "https://example.com/implicit"
+    );
+    assert_eq!(servers["local"]["type"], "stdio");
+    assert_eq!(servers["streamable"]["type"], "streamable-http");
+    assert_eq!(servers["streamable"]["url"], "https://example.com/mcp");
+    assert!(servers["streamable"].get("transport").is_none());
+    assert_eq!(servers["array-command"]["command"], "node");
+    assert_eq!(
+        servers["array-command"]["args"],
+        serde_json::json!(["server.js", "--log"])
+    );
+    assert_eq!(servers["websocket"]["type"], "ws");
+    assert_eq!(servers["claude-only"]["type"], "stdio");
+    assert!(servers.contains_key("claude-only"));
+    assert!(!servers.contains_key("shared"));
+
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn preserves_qwen_http_url_mcp_shape() {
+    let project = temp_project("qwen-mcp-http-url");
+    fs::create_dir_all(project.join(".carabiner")).unwrap();
+    fs::write(
+        project.join(".carabiner/mcp.jsonc"),
+        r#"{"mcpServers":{"remote":{"type":"http","httpUrl":"https://example.com/mcp"}}}"#,
+    )
+    .unwrap();
+
+    generate(config(&project, &["qwencode"], &["mcp"])).unwrap();
+    let generated: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(project.join(".qwen/settings.json")).unwrap())
+            .unwrap();
+    let server = &generated["mcpServers"]["remote"];
+    assert_eq!(server["type"], "http");
+    assert_eq!(server["httpUrl"], "https://example.com/mcp");
+    assert!(server.get("url").is_none());
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn rejects_ambiguous_mcp_transport_fields() {
+    let project = temp_project("ambiguous-mcp-transport");
+    fs::create_dir_all(project.join(".carabiner")).unwrap();
+    fs::write(
+        project.join(".carabiner/mcp.jsonc"),
+        r#"{"mcpServers":{"demo":{"type":"stdio","transport":"http","command":"echo","url":"https://example.com/mcp"}}}"#,
+    )
+    .unwrap();
+
+    let error = generate(config(&project, &["claudecode"], &["mcp"])).unwrap_err();
+    assert!(error.to_string().contains(
+        "MCP server 'demo' in mcpServers must use either 'type' or 'transport', not both."
+    ));
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn rejects_nonobject_tool_scoped_mcp_servers() {
+    let project = temp_project("nonobject-tool-mcp");
+    fs::create_dir_all(project.join(".carabiner")).unwrap();
+    fs::write(
+        project.join(".carabiner/mcp.jsonc"),
+        r#"{"mcpServers":{},"claudecode":{"mcpServers":[]}}"#,
+    )
+    .unwrap();
+
+    let error = generate(config(&project, &["claudecode"], &["mcp"])).unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("Canonical MCP source 'claudecode.mcpServers' must be an object."));
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn rejects_invalid_mcp_server_connection_shapes() {
+    let project = temp_project("invalid-mcp-connections");
+    fs::create_dir_all(project.join(".carabiner")).unwrap();
+    for (content, expected) in [
+        (
+            r#"{"mcpServers":{"demo":{"type":"stdio"}}}"#,
+            "with type 'stdio' must define a non-empty command.",
+        ),
+        (
+            r#"{"mcpServers":{"demo":{"transport":"http"}}}"#,
+            "with transport 'http' must define a non-empty 'url' or 'httpUrl'.",
+        ),
+        (
+            r#"{"mcpServers":{"demo":{"command":"echo","url":"https://example.com/mcp"}}}"#,
+            "must set 'type' or 'transport' when both a command and URL are present.",
+        ),
+        (
+            r#"{"mcpServers":{"demo":{"type":"tcp","command":"echo"}}}"#,
+            "field 'type' has unsupported transport 'tcp'.",
+        ),
+    ] {
+        fs::write(project.join(".carabiner/mcp.jsonc"), content).unwrap();
+        let error = generate(config(&project, &["claudecode"], &["mcp"])).unwrap_err();
+        assert!(error.to_string().contains(expected), "{error:#}");
+    }
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn rejects_nonobject_shared_permissions() {
+    let project = temp_project("nonobject-shared-permissions");
+    fs::create_dir_all(project.join(".carabiner")).unwrap();
+    fs::write(
+        project.join(".carabiner/permissions.jsonc"),
+        r#"{"permission":[]}"#,
+    )
+    .unwrap();
+
+    let error = generate(config(&project, &["claudecode"], &["permissions"])).unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("Canonical permissions source 'permission' must be an object."));
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn generates_bare_shared_permission_actions() {
+    let project = temp_project("bare-shared-permission-action");
+    fs::create_dir_all(project.join(".carabiner")).unwrap();
+    fs::write(
+        project.join(".carabiner/permissions.jsonc"),
+        r#"{"permission":{"bash":"allow"}}"#,
+    )
+    .unwrap();
+
+    generate(config(&project, &["claudecode"], &["permissions"])).unwrap();
+    let generated: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(project.join(".claude/settings.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        generated["permissions"]["allow"],
+        serde_json::json!(["Bash"])
+    );
+    fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn rejects_malformed_shared_permission_rules() {
+    let project = temp_project("malformed-shared-permission-rules");
+    fs::create_dir_all(project.join(".carabiner")).unwrap();
+    for (content, expected) in [
+        (
+            r#"{"permission":{"bash":[]}}"#,
+            "permission.bash' must be an action string or a map of glob patterns to actions.",
+        ),
+        (
+            r#"{"permission":{"bash":{"git *":1}}}"#,
+            "permission.bash.git *' must be 'allow', 'ask', or 'deny'.",
+        ),
+        (
+            r#"{"permission":{"bash":"grant"}}"#,
+            "permission.bash' must be 'allow', 'ask', or 'deny'.",
+        ),
+    ] {
+        fs::write(project.join(".carabiner/permissions.jsonc"), content).unwrap();
+        let error = generate(config(&project, &["claudecode"], &["permissions"])).unwrap_err();
+        assert!(error.to_string().contains(expected), "{error:#}");
+    }
     fs::remove_dir_all(project).unwrap();
 }
 

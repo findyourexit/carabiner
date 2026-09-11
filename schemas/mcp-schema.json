@@ -4,47 +4,248 @@
   "title": "Carabiner MCP configuration",
   "description": "Schema for .carabiner/mcp.jsonc — the canonical MCP server list",
   "type": "object",
-  "additionalProperties": false,
+  "required": ["mcpServers"],
   "properties": {
     "$schema": {
       "type": "string",
       "description": "URL of the JSON Schema for this file."
     },
     "mcpServers": {
+      "$ref": "#/$defs/serverMap"
+    }
+  },
+  "propertyNames": {
+    "anyOf": [
+      {
+        "enum": ["$schema", "mcpServers"]
+      },
+      {
+        "$ref": "#/$defs/mcpTargetName"
+      }
+    ]
+  },
+  "additionalProperties": {
+    "$ref": "#/$defs/targetServerBlock"
+  },
+  "$defs": {
+    "mcpTargetName": {
+      "type": "string",
+      "enum": ["aiassistant", "amp", "antigravity-cli", "antigravity-ide", "antigravity-plugin", "augmentcode", "claudecode", "claudecode-plugin", "cline", "codexcli", "copilot", "copilotcli", "cursor", "deepagents", "devin", "factorydroid", "goose", "grokcli", "hermesagent", "junie", "kilo", "kimi-code", "kiro", "musecode", "opencode", "qwencode", "reasonix", "roo", "rovodev", "takt", "vibe", "warp", "zed", "zoocode"]
+    },
+    "transport": {
+      "type": "string",
+      "enum": ["local", "stdio", "sse", "http", "ws", "streamable-http"],
+      "description": "MCP transport type. 'local' aliases stdio and 'streamable-http' aliases http."
+    },
+    "server": {
       "type": "object",
-      "description": "Map of MCP server definitions keyed by server name.",
-      "additionalProperties": {
-        "type": "object",
-        "required": ["type"],
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": ["stdio", "http", "sse"],
-            "description": "Server transport type."
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/transport"
+        },
+        "transport": {
+          "$ref": "#/$defs/transport"
+        },
+        "command": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            }
+          ],
+          "description": "Executable to run. Required when type or transport is stdio or local."
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
           },
-          "command": {
-            "type": "string",
-            "description": "Executable to run. Required for stdio servers."
+          "description": "Arguments passed to the command."
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
           },
-          "args": {
-            "type": "array",
-            "items": { "type": "string" },
-            "description": "Arguments passed to the command."
+          "description": "Environment variables set before launching the server."
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Server URL. Required for remote transport types unless httpUrl is used."
+        },
+        "httpUrl": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Alias for url accepted by several tool configurations."
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
           },
-          "env": {
-            "type": "object",
-            "additionalProperties": { "type": "string" },
-            "description": "Environment variables set before launching the server."
+          "description": "HTTP headers sent with remote requests."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Working directory for command-based servers."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable server description."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Carabiner generation switch. false omits this server from all generated output."
+        },
+        "disabled": {
+          "type": "boolean",
+          "description": "Native server disabled state forwarded where a target supports it."
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "string"
           },
-          "url": {
-            "type": "string",
-            "description": "Server URL. Required for http and sse servers."
+          "description": "Deprecated per-server target filter. Prefer tool-scoped mcpServers blocks."
+        },
+        "enabledTools": {
+          "type": "array",
+          "items": {
+            "type": "string"
           },
-          "headers": {
-            "type": "object",
-            "additionalProperties": { "type": "string" },
-            "description": "HTTP headers sent with each request. Used by http and sse servers."
+          "description": "Per-server MCP tool allowlist for targets that support it."
+        },
+        "disabledTools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Per-server MCP tool denylist for targets that support it."
+        }
+      },
+      "not": {
+        "required": ["type", "transport"]
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": ["command"],
+            "anyOf": [
+              { "required": ["url"] },
+              { "required": ["httpUrl"] }
+            ],
+            "not": {
+              "anyOf": [
+                { "required": ["type"] },
+                { "required": ["transport"] }
+              ]
+            }
           }
+        },
+        {
+          "if": {
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "enum": ["local", "stdio"]
+              }
+            }
+          },
+          "then": {
+            "required": ["command"]
+          }
+        },
+        {
+          "if": {
+            "required": ["transport"],
+            "properties": {
+              "transport": {
+                "enum": ["local", "stdio"]
+              }
+            }
+          },
+          "then": {
+            "required": ["command"]
+          }
+        },
+        {
+          "if": {
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "enum": ["http", "sse", "ws", "streamable-http"]
+              }
+            }
+          },
+          "then": {
+            "anyOf": [
+              {
+                "required": ["url"]
+              },
+              {
+                "required": ["httpUrl"]
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": ["transport"],
+            "properties": {
+              "transport": {
+                "enum": ["http", "sse", "ws", "streamable-http"]
+              }
+            }
+          },
+          "then": {
+            "anyOf": [
+              {
+                "required": ["url"]
+              },
+              {
+                "required": ["httpUrl"]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "serverMap": {
+      "type": "object",
+      "description": "Map of canonical MCP server definitions keyed by server name.",
+      "additionalProperties": {
+        "$ref": "#/$defs/server"
+      }
+    },
+    "targetServerMap": {
+      "type": "object",
+      "description": "Map of tool-scoped server overrides. null removes a shared server for that tool.",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "$ref": "#/$defs/server"
+          }
+        ]
+      }
+    },
+    "targetServerBlock": {
+      "type": "object",
+      "required": ["mcpServers"],
+      "additionalProperties": false,
+      "properties": {
+        "mcpServers": {
+          "$ref": "#/$defs/targetServerMap"
         }
       }
     }
