@@ -1,4 +1,2 @@
-# See https://doc.rust-lang.org/clippy/lint_configuration.html
-
-# Keep suggestions compatible with the project's MSRV.
+# Keep suggestions compatible with Rust 1.82.
 msrv = "1.82"

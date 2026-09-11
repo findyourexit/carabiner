@@ -23,19 +23,19 @@ Add a `sources` array to your `carabiner.jsonc`:
   "targets": ["copilot", "claudecode"],
   "features": ["rules", "skills"],
   "sources": [
-    // Fetch all skills from a GitHub repository (default transport)
+    // All skills from a GitHub source.
     { "source": "owner/repo" },
 
-    // Fetch only specific skills by name
+    // Selected skills.
     { "source": "anthropics/skills", "skills": ["skill-creator"] },
 
-    // Fetch only specific .md rules from rules/ (no skills)
+    // Selected Markdown rules.
     {
       "source": "acme/ai-standards",
       "rules": ["testing-guidelines", "typescript-conventions"],
     },
 
-    // Rules and skills can be selected from the same source
+    // Rules and skills from one source.
     {
       "source": "acme/ai-assets",
       "rules": ["*"],
@@ -44,10 +44,10 @@ Add a `sources` array to your `carabiner.jsonc`:
       "path": "exports/skills",
     },
 
-    // With ref pinning and subdirectory path (same syntax as fetch command)
+    // A pinned source subdirectory.
     { "source": "owner/repo@v1.0.0:path/to/skills" },
 
-    // Git transport — supports HTTPS, SSH, git, and file URLs
+    // Git source.
     {
       "source": "https://dev.azure.com/org/project/_git/repo",
       "transport": "git",
@@ -55,18 +55,17 @@ Add a `sources` array to your `carabiner.jsonc`:
       "path": "exports/skills",
     },
 
-    // Git transport with a local repository
+    // Local Git source.
     { "source": "file:///path/to/local/repo", "transport": "git" },
 
-    // Git transport against a single-skill repo whose SKILL.md is at the root
+    // Git source with a root SKILL.md.
     {
       "source": "https://github.com/feature-sliced/skills",
       "transport": "git",
       "path": ".",
     },
 
-    // npm transport (EXPERIMENTAL) — fetch a package from an npm-compatible
-    // registry (npmjs.org, JFrog Artifactory, Sonatype Nexus, Verdaccio, ...)
+    // npm package source.
     {
       "source": "@acme/skill-package",
       "transport": "npm",
@@ -212,10 +211,10 @@ Example `carabiner.jsonc`:
   "targets": ["claudecode"],
   "features": ["rules"],
   "sources": [
-    // Default: agent=github-copilot, scope=project -> .agents/skills/git-commit/
+    // Default GitHub Copilot project path: .agents/skills/git-commit/.
     { "source": "acme/skills", "skills": ["git-commit"] },
 
-    // Same source, deployed for Claude Code at user scope -> ~/.claude/skills/git-commit/
+    // Claude Code user path: ~/.claude/skills/git-commit/.
     {
       "source": "acme/skills",
       "skills": ["git-commit"],
@@ -246,13 +245,13 @@ carabiner install
 # Force update to latest refs
 carabiner install --update
 
-# Strict CI mode — fail if lockfile doesn't cover all sources and selections
+# CI mode with locked cached sources.
 carabiner install --frozen
 
 # Install then generate
 carabiner install && carabiner generate
 
-# Skip source installation — just don't run install
+# Generate without installing sources.
 carabiner generate
 ```
 

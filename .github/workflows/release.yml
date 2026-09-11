@@ -222,14 +222,14 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           DATE=$(date -u +%Y-%m-%d)
-          # Count unreleased entries from the tagged commit before switching branches.
+          # Count Unreleased entries before checking out main.
           UNRELEASED=$(awk '/^## \[Unreleased\]/{flag=1; next} /^## \[/{flag=0} flag' CHANGELOG.md | grep -c '\S' || true)
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Switch to main before modifying anything so there is no unstaged conflict.
+          # Check out main for changelog promotion.
           git fetch origin main
           git checkout main
-          # Apply the promotion to main's copy of the changelog.
+          # Promote the changelog on main.
           if [ "$UNRELEASED" -gt 0 ]; then
             sed -i "s/^## \[Unreleased\]/## [Unreleased]\n\n## [${VERSION}] - ${DATE}/" CHANGELOG.md
           fi

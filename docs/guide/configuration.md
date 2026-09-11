@@ -22,39 +22,36 @@ Use the array form of `targets` when every selected target should receive the sa
 {
   "$schema": "https://github.com/findyourexit/carabiner/releases/latest/download/config-schema.json",
 
-  // Targets to generate. Use "*" for all supported non-legacy targets.
+  // Generate selected targets.
   "targets": ["cursor", "claudecode", "opencode", "codexcli"],
 
-  // Features to generate. Use "*" for all features.
+  // Generate selected features.
   "features": ["rules", "mcp", "commands", "subagents", "hooks", "permissions"],
 
-  // Directories that receive generated files. Most projects use ["."].
-  // A monorepo can list multiple roots when each package needs generated configuration.
+  // Output directories.
   "outputRoots": ["."],
 
-  // Remove generated files that are no longer produced by the current source.
+  // Remove files absent from current sources.
   "delete": true,
 
-  // Print detailed output.
+  // Enable detailed output.
   "verbose": false,
 
-  // Suppress normal output. Errors are still reported.
+  // Suppress normal output.
   "silent": false,
 
-  // Advanced generation options.
   "global": false, // Generate user-scope configuration files.
   "simulateCommands": false, // Generate simulated commands.
   "simulateSubagents": false, // Generate simulated subagents.
   "simulateSkills": false, // Generate simulated skills.
 
-  // Choose names for command files generated for tools without command subdirectory support.
+  // Name commands in flat output formats.
   "flattenedCommandNaming": "basename",
 
-  // Limit `carabiner gitignore` entries to the configured targets.
+  // Limit ignore entries to selected targets.
   "gitignoreTargetsOnly": true,
 
-  // Declarative rule and skill sources installed with `carabiner install`.
-  // See the Declarative Sources guide for details.
+  // Optional source declarations.
   // "sources": [
   //   { "source": "owner/repo" },
   //   { "source": "org/repo", "skills": ["specific-skill"] },
@@ -180,7 +177,7 @@ When multiple targets write the same output file, the last target in the `target
 
 ```jsonc title="carabiner.jsonc"
 {
-  // opencode wins because it comes last.
+  // The last target writes AGENTS.md.
   "targets": ["agentsmd", "opencode"],
   "features": ["rules"],
 }
@@ -190,7 +187,7 @@ Carabiner generates `AGENTS.md` for `agentsmd` first, then generates it for `ope
 
 ```jsonc title="carabiner.jsonc"
 {
-  // agentsmd wins because it comes last.
+  // The last target writes AGENTS.md.
   "targets": ["opencode", "agentsmd"],
   "features": ["rules"],
 }

@@ -26,10 +26,8 @@ targets: ["*"] # * = all, or specific tools
 description: "Carabiner project overview and development guidelines for unified AI rules management CLI tool"
 globs: ["**/*"] # file patterns to match (e.g., ["*.md", "*.txt"])
 agentsmd: # agentsmd and codexcli specific parameters
-  # Support for using nested AGENTS.md files for subprojects in a large monorepo.
-  # This option is available only if root is false.
-  # If subprojectPath is provided, the file is located in `${subprojectPath}/AGENTS.md`.
-  # If subprojectPath is not provided and root is false, the file is located in `.agents/memories/*.md`.
+  # Use subprojectPath for non-root rules.
+  # It writes <subprojectPath>/AGENTS.md.
   subprojectPath: "path/to/subproject"
 cursor: # cursor specific parameters
   alwaysApply: true
@@ -38,10 +36,8 @@ cursor: # cursor specific parameters
 copilot: # copilot specific parameters (non-root `*.instructions.md` files only)
   name: "TypeScript Style" # (optional) display name shown in the VS Code UI; defaults to the file name
   excludeAgent: "code-review" # (optional) "code-review" or "cloud-agent": skip this file for that agent
-  # Any other frontmatter key found in a hand-written `*.instructions.md` is imported into this
-  # section and written back out, so a field Carabiner does not model is not lost on regeneration.
-  # `description` and `applyTo` are the exception: they have canonical homes (`description` and
-  # `globs`), so a value written for them in this section is overwritten by the canonical one.
+  # Preserve unmodeled Cursor fields in this section.
+  # Canonical description and globs override these values.
 antigravity: # antigravity specific parameters
   trigger: "always_on" # always_on, glob, manual, or model_decision
   globs: ["**/*"] # (optional) file patterns to match when trigger is "glob"
@@ -507,9 +503,8 @@ claudecode: # for claudecode-specific parameters
   hooks: {} # (optional) hook config (passed through verbatim)
 copilot: # for GitHub Copilot specific parameters
   tools:
-    # Listed tools are emitted verbatim; omit `tools` entirely to grant the agent
-    # all tools. `agent/runSubagent` is opt-in, add it explicitly only when this
-    # subagent needs to orchestrate other subagents.
+    # Omit tools to grant access to all tools.
+    # Add agent/runSubagent for subagent orchestration.
     - web/fetch
     - agent/runSubagent
 opencode: # for OpenCode-specific parameters
@@ -736,18 +731,11 @@ name: example-skill # skill name
 description: >- # skill description
   A sample skill that demonstrates the skill format
 targets: ["*"] # * = all, or specific tools
-# (optional) shared default for tools that support the flag, claudecode, copilot,
-# copilotcli, cursor, zed, pi, qwencode, grokcli, and factorydroid. Any of those
-# tool sections can override it by setting their own `disable-model-invocation`
-# value below. devin also reads this root value (true maps onto a user-only
-# `triggers` list); it has no section key of the same name, but devin.triggers
-# overrides it.
+# Shared default for supported targets.
+# Target sections override this value.
 disable-model-invocation: true
-# (optional) shared default for tools that support the flag, claudecode, copilot,
-# copilotcli, cursor, qwencode, vibe, grokcli, and factorydroid. Any of those tool
-# sections can override it by setting their own `user-invocable` value below.
-# devin also reads this root value (false maps onto a model-only `triggers`
-# list); it has no section key of the same name, but devin.triggers overrides it.
+# Shared default for supported targets.
+# Target sections override this value.
 user-invocable: false
 claudecode: # for claudecode-specific parameters
   model: sonnet # opus, sonnet, haiku, or any string
@@ -773,22 +761,18 @@ claudecode: # for claudecode-specific parameters
   disable-model-invocation: true # (optional) disable model invocation for this skill
   user-invocable: false # (optional) hide from the / menu while keeping model access
   scheduled-task: true # (optional) emit to .claude/scheduled-tasks/<name>/SKILL.md instead of .claude/skills/<name>/SKILL.md
-  # paths (optional) limits auto-activation to matching globs. Accepts a
-  # comma-separated string, e.g. paths: "src/**/*.ts,test/**/*.ts", or a list:
+  # Optional paths limit auto-activation.
   paths:
     - "src/**/*.ts"
     - "test/**/*.ts"
-  # Claude Code accepts the three Agent Skills standard fields below but acts on
-  # none of them; they matter for claude.ai skill uploads, the Skills API, and
-  # packaging with package_skill.py.
+  # Optional Agent Skills metadata.
   license: Apache-2.0 # (optional) license covering the skill
   compatibility: Requires Node.js 22 or later # (optional) environment requirements, up to 500 characters
   metadata: # (optional) free-form map for your own tooling; a non-map value is dropped by Claude Code
     catalog: internal
 codexcli: # for codexcli-specific parameters
   short-description: A brief user-facing description
-  # The following sections are emitted to the agents/openai.yaml sidecar next to SKILL.md.
-  # See https://developers.openai.com/codex/skills.md
+  # Metadata written to agents/openai.yaml.
   interface: # (optional) UI metadata
     display_name: Example Skill
     short_description: A brief user-facing description
@@ -801,8 +785,7 @@ codexcli: # for codexcli-specific parameters
         value: example
         description: Example MCP tool
 pi: # for Pi Coding Agent-specific parameters (optional; Agent Skills standard)
-  # Authored either as a canonical list or as the spec's space-delimited string;
-  # emitted to SKILL.md as the string, and imported back as the list.
+  # Carabiner writes this list as a space-separated string.
   allowed-tools:
     - "Bash"
     - "Read"
@@ -812,8 +795,7 @@ pi: # for Pi Coding Agent-specific parameters (optional; Agent Skills standard)
   metadata: # (optional) free-form metadata
     author: carabiner
 replit: # for Replit Agent-specific parameters (optional; Agent Skills standard)
-  # Authored either as a canonical list or as the spec's space-separated string;
-  # emitted to SKILL.md as the string, and imported back as the list.
+  # Carabiner writes this list as a space-separated string.
   allowed-tools:
     - "Bash"
     - "Read"
@@ -822,8 +804,7 @@ replit: # for Replit Agent-specific parameters (optional; Agent Skills standard)
   metadata: # (optional) free-form metadata
     author: carabiner
 deepagents: # for deepagents-cli (dcode)-specific parameters (optional; Agent Skills standard)
-  # Authored as a canonical list; emitted to SKILL.md as a space-delimited string
-  # (e.g. "Bash Read") because dcode rejects a YAML list at runtime.
+  # Carabiner writes this list as a space-separated string.
   allowed-tools:
     - "Bash"
     - "Read"
@@ -855,9 +836,7 @@ kiro: # for Kiro-specific parameters (optional; project .kiro/skills/, global ~/
   compatibility: "Requires network access" # (optional) free-form string (an object is also accepted for back-compat)
   metadata: # (optional) free-form metadata
     author: carabiner
-  # Any other frontmatter key found in a hand-written SKILL.md is imported into this section and
-  # written back out, so a field Carabiner does not model is not lost on regeneration. `name` and
-  # `description` are the exception: they have canonical homes at the top level.
+  # Preserve unmodeled skill metadata in this section.
 kimi-code: # for Kimi Code-specific parameters (optional; project/global .kimi-code/skills/)
   type: inline # (optional) prompt, inline, or flow
   whenToUse: "When reviewing pull requests" # (optional) model invocation hint
@@ -870,11 +849,7 @@ agentsskills: # for the Agent Skills standard target (optional; supports project
     version: "1.0.0"
   allowed-tools: "shell" # (optional, experimental) space-separated string or list
 amp: # for Amp-specific parameters (optional; project .agents/skills/, global ~/.config/agents/skills/)
-  # Amp reads the open Agent Skills standard and documents no frontmatter field beyond
-  # `name`/`description`, so this section exists only to carry keys a hand-written SKILL.md adds:
-  # they are imported into it and written back to the top level of the generated file instead of
-  # being erased on regeneration. `name` and `description` are the exception, they have canonical
-  # homes at the top level and a section value of either is ignored.
+  # Preserve unmodeled skill metadata in this section.
 copilot: # for GitHub Copilot-specific parameters (optional; project .github/skills/, global ~/.copilot/skills/)
   license: MIT # (optional)
   allowed-tools: "shell" # (optional) tools pre-approved without per-use confirmation
@@ -882,24 +857,15 @@ copilot: # for GitHub Copilot-specific parameters (optional; project .github/ski
   user-invocable: true # (optional, default true) whether users can run it with /SKILL-NAME
   disable-model-invocation: false # (optional, default false) stop the agent from invoking it on its own
   context: fork # (optional, experimental) run the skill in a forked session (VS Code 1.118+)
-  # Any other frontmatter key found in a hand-written SKILL.md is imported into this section and
-  # written back out, so a field Carabiner does not model is not lost on regeneration. `name` and
-  # `description` are the exception: they have canonical homes at the top level. Like the modeled
-  # fields below, such a key rides one section only, so the shared-path caveat that follows applies
-  # to it too.
-  # `copilot` and `copilotcli` write the same SKILL.md path at both scopes, so with both targets
-  # enabled the one generated last wins, and that is the order the targets are listed in, so which
-  # section decides the file is not fixed. Set the value in both sections (or, for the two invocation
-  # gates, in the shared top-level fields) whenever you generate for both. `context` has no
-  # `copilotcli` counterpart, so it survives only when `copilot` is generated last.
+  # Preserve unmodeled skill metadata in this section.
+  # Set shared values in both sections for Copilot and Copilot CLI.
 copilotcli: # for GitHub Copilot CLI-specific parameters (optional; project .github/skills/, global ~/.copilot/skills/)
   license: MIT # (optional)
   allowed-tools: "shell" # (optional) tools pre-approved without per-use confirmation
   argument-hint: "[message]" # (optional) hint shown for the skill's expected arguments
   user-invocable: true # (optional, default true) whether users can run it with /SKILL-NAME
   disable-model-invocation: false # (optional, default false) stop the agent from invoking it on its own
-  # As in the `copilot` section, any other frontmatter key found in a hand-written SKILL.md is
-  # imported here and written back out.
+  # Preserve unmodeled skill metadata in this section.
 rovodev: # for Rovo Dev CLI-specific parameters (optional; Agent Skills standard)
   allowed-tools: "grep bash" # (optional) space-separated string (a YAML list is also accepted)
   license: MIT # (optional)
@@ -920,40 +886,37 @@ factorydroid: # for Factory Droid-specific parameters (optional)
   user-invocable: false # (optional) hide from the slash-command menu, keep model access
   enabled: false # (optional, default true) keep the skill on disk but stop Droid loading it
   allowed-tools: "Read Execute" # (optional) tools the skill is designed to use (string or list)
-  # Droid documents the four packaging fields below without a type and never validates
-  # them, so Carabiner carries whatever value they hold through in both directions.
+  # Preserve Droid packaging fields without fixed types.
   license: MIT # (optional) license metadata for shared skills
   compatibility: droid # (optional) compatibility metadata for catalogs, plugins, or team tooling
   metadata: # (optional) structured metadata for your own tooling
     owner: platform-team
-  version: "1.0.0" # (optional) version string for shared or packaged skills, quote it, since
-  # an unquoted 1.0 is a YAML number and is emitted back as `version: 1`
-  # `name` and `description` are the exception: the top-level values always win over a
-  # value of the same key inside this section.
-  # As in the `kiro` section, any other frontmatter key found in a hand-written SKILL.md is
-  # imported here and written back out.
-takt: # takt specific parameters (optional; emitted under .takt/facets/knowledge/, frontmatter is dropped on emit)
+  version: "1.0.0" # (optional) version string
+  # Quote version values to preserve strings.
+  # Top-level name and description take precedence.
+  # Preserve unmodeled skill metadata in this section.
+takt: # Takt-specific parameters
   name: "renamed-stem" # (optional) override the emitted filename stem (no path separators or "..")
-  extends: "base" # (optional) emit a leading `{extends:<parent>}` facet-inheritance directive (Takt 0.39.0+)
-devin: # for Devin-specific parameters (optional; project .devin/skills/, global ~/.config/devin/skills/)
+  extends: "base" # (optional) facet parent
+devin: # Devin-specific parameters
   argument-hint: "[environment]" # (optional) hint shown after the slash-command name
   model: "fast" # (optional) model override while the skill runs
-  subagent: true # (optional) run the skill in a subagent (string or boolean per Devin's docs)
+  subagent: true # (optional) run as a subagent
   agent: "deployer" # (optional) named agent profile to run the skill with
   allowed-tools: # (optional) tools available while the skill runs (string or list)
     - "Bash(git status:*)"
-  permissions: {} # (optional) auto-approval rules applied while the skill runs (load-bearing since Devin CLI v3000.1.23)
-  triggers: ["user"] # (optional) invocation gating; omitted = user + model. The shared disable-model-invocation / user-invocable flags map onto this when unset.
-qwencode: # for Qwen Code-specific parameters (optional; project .qwen/skills/, global ~/.qwen/skills/)
+  permissions: {} # (optional) approval rules
+  triggers: ["user"] # (optional) invocation triggers
+qwencode: # Qwen Code-specific parameters
   priority: 10 # (optional) higher values appear earlier in /skills listings
-  paths: # (optional) glob patterns gating model discovery to matching files (a scalar is coerced to the array Qwen Code requires)
+  paths: # (optional) matching files
     - "src/**/*.ts"
   user-invocable: false # (optional) hide from slash-command invocation, keep model access
   disable-model-invocation: true # (optional) hide from the model but allow direct user invocation
   allowedTools: # (optional) permissions.allow-syntax rules auto-approved while the skill is active
     - "Shell(git status:*)"
-  model: "fast" # (optional) model override while the skill runs (model id, fast, authType:modelId, inherit)
-  hooks: {} # (optional) session-scoped hooks registered while the skill runs (settings.json shape)
+  model: "fast" # (optional) model override
+  hooks: {} # (optional) session hooks
   when_to_use: "Use when deploying" # (optional) invocation guidance surfaced in the SkillTool description
   argument-hint: "[environment]" # (optional) hint shown after the slash-command name in completion
 grokcli: # for Grok CLI-specific parameters (optional)
@@ -1076,9 +1039,9 @@ Servers under the shared `mcpServers` key are emitted to every targeted tool. To
   },
   "claudecode": {
     "mcpServers": {
-      // Added only to Claude Code's MCP config.
+      // Claude Code only.
       "claude-only-server": { "type": "http", "url": "https://example.com/mcp" },
-      // `null` removes a shared server for Claude Code only.
+      // Remove this shared server for Claude Code.
       "shared-server": null,
     },
   },
@@ -1415,7 +1378,7 @@ The shared `permission` block applies to every targeted tool. To scope rules to 
   },
   "claudecode": {
     "permission": {
-      // Replaces the shared `bash` category for Claude Code only.
+      // Override the shared bash category for Claude Code.
       "bash": { "git *": "allow", "git push *": "deny", "*": "ask" },
     },
   },
@@ -1471,7 +1434,7 @@ For OpenCode, this generates the `permission` object in `opencode.json` / `openc
       "permission": {
         "bash": { "git *": "allow", "*": "ask" },
       },
-      // Emitted only into opencode.json's `permission`; never leaks to other tools.
+      // OpenCode only.
       "opencode": {
         "permission": {
           "external_directory": "deny",

@@ -293,9 +293,7 @@ pub fn walk_files(root: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// Discover source files through symbolic links. Deletion callers use
-/// `walk_files` deliberately so managed-directory symlinks cannot escape the
-/// output root.
+/// Discover source files through symbolic links.
 pub fn walk_files_following_links(root: &Path) -> Vec<PathBuf> {
     if !root.is_dir() {
         return Vec::new();

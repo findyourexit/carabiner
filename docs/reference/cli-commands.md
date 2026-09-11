@@ -63,7 +63,7 @@ Install Carabiner with `cargo install carabiner --locked`.
     # Resolve every source reference again and ignore the lockfile
     carabiner install --update
 
-    # Require a complete lockfile and matching cached artifacts; no network access
+    # Require a complete lockfile and matching cached artifacts. No network access.
     carabiner install --frozen
 
     # Install sources and then generate configuration

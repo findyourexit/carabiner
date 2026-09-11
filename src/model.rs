@@ -247,7 +247,7 @@ pub struct GenerateResult {
     pub permissions: FeatureResult,
     pub checks: FeatureResult,
     pub activation: FeatureResult,
-    /// Serialized skill descriptors retained for the CLI JSON contract.
+    /// Skill descriptors for CLI JSON output.
     pub skill_details: Vec<Value>,
     pub has_diff: bool,
 }
