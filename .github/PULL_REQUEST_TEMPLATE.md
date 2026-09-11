@@ -1,14 +1,14 @@
 ## Summary
 
-<!-- What user-visible problem does this solve? -->
+<!-- Describe the user-visible behavior. -->
 
 ## Changes
 
-<!-- Describe the observable behavior and important implementation choices. -->
+<!-- Describe the implementation. -->
 
 ## Verification
 
-<!-- List exact commands and relevant manual scenarios with results. -->
+<!-- List verification commands and results. -->
 
 - [ ] Focused tests cover new behavior and plausible regressions.
 - [ ] `cargo check --all-targets --locked` passes.

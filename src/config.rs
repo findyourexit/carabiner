@@ -1117,7 +1117,7 @@ fn resolve_output_root(cwd: &Path, value: &str) -> Result<PathBuf> {
     Ok(resolved)
 }
 
-/// A stable data shape used by callers that want to report feature counts.
+/// Empty results for every feature.
 pub fn empty_feature_results() -> HashMap<String, FeatureResult> {
     Feature::ALL
         .iter()

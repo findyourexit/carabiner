@@ -1,5 +1,4 @@
-# See https://rust-lang.github.io/rustfmt/
-# Only stable options are used to avoid requiring nightly.
+# Use stable formatting options.
 
 edition = "2021"
 max_width = 100
