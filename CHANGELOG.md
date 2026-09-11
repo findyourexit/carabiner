@@ -4,6 +4,8 @@ All notable Carabiner changes are documented here. The format follows [Keep a Ch
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-09-11
+
 ### Added
 
 - Starter `project-context` skill collection under `skills/`, fetchable with `carabiner fetch findyourexit/carabiner`.
