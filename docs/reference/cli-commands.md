@@ -18,8 +18,8 @@ Install Carabiner with `cargo install carabiner --locked`.
 
 === "Generate"
     ```bash
-    # Generate every feature for every tool
-    carabiner generate --targets "*" --features "*"
+    # Generate every configured target and feature
+    carabiner generate
 
     # Generate selected features for selected tools
     carabiner generate --targets copilot,cursor,cline --features rules,mcp
@@ -37,8 +37,8 @@ Install Carabiner with `cargo install carabiner --locked`.
     # Preview changes without writing files
     carabiner generate --dry-run --targets claudecode --features rules
 
-    # Check whether generated files are current for continuous integration
-    carabiner generate --check --targets "*" --features "*"
+    # Check whether configured generated files are current for continuous integration
+    carabiner generate --check
 
     # Generate from a shared source tree without changing directories
     carabiner generate --input-roots ~/.aiglobal/.carabiner --targets "*" --features rules
@@ -49,7 +49,7 @@ Install Carabiner with `cargo install carabiner --locked`.
     # Fetch configuration from a Git repository
     carabiner fetch owner/repo
     carabiner fetch owner/repo@v1.0.0 --features rules,commands
-    carabiner fetch https://github.com/owner/repo --conflict skip
+    carabiner fetch https://github.com/anthropics/skills --conflict skip
 
     # Install rules and skills declared in carabiner.jsonc
     carabiner install
@@ -63,7 +63,7 @@ Install Carabiner with `cargo install carabiner --locked`.
     # Resolve every source reference again and ignore the lockfile
     carabiner install --update
 
-    # Require an up-to-date lockfile and fetch artifacts by locked reference
+    # Require a complete lockfile and matching cached artifacts; no network access
     carabiner install --frozen
 
     # Install sources and then generate configuration
@@ -120,6 +120,8 @@ Install Carabiner with `cargo install carabiner --locked`.
 | --- | --- | --- |
 | `--targets, -t <tools>` | Comma-separated tools, such as `claudecode,copilot` or `*`. | From `carabiner.jsonc` |
 | `--features, -f <features>` | Comma-separated features: rules, commands, subagents, skills, mcp, hooks, permissions, checks, and deprecated ignore. | From `carabiner.jsonc` |
+| `--output-roots, -o <paths>` | Comma-separated destination roots. Overrides `outputRoots`; global generation uses target user locations instead. | From `outputRoots` or `<cwd>` |
+| `--config, -c <path>` | Project configuration file to resolve. | `carabiner.jsonc` |
 | `--input-roots <paths...>` | Ordered source-tree directories, such as `.carabiner` and `.carabiner.local`. Each value names a source tree directly, so Carabiner does not append `.carabiner/`. The first root must exist. Later roots are optional overlays and can be absent. Later roots override earlier roots for the same relative source path. This option applies to `generate` only and cannot be used with `--input-root`. | `<cwd>/.carabiner` |
 | `--input-root <path>` | **Deprecated.** Parent directory of a `.carabiner/` source tree. Carabiner expands it to `--input-roots <path>/.carabiner`. Use `--input-roots` instead. This option cannot be used with `--input-roots`. | Current directory |
 | `--dry-run` | Show planned changes without writing files. | `false` |
@@ -128,11 +130,13 @@ Install Carabiner with `cargo install carabiner --locked`.
 | `--simulate-commands` | Generate simulated commands for tools without native command support. | `false` |
 | `--simulate-subagents` | Generate simulated subagents for tools without native subagent support. | `false` |
 | `--simulate-skills` | Generate simulated skills for tools without native skill support. | `false` |
-| `--delete` | Delete existing generated files before writing. | From `carabiner.jsonc` |
+| `--delete` | Remove orphaned generated files after rendering the current output. | From `carabiner.jsonc` |
 | `--watch, -w` | Keep running and regenerate when source files change. | `false` |
+| `--verbose, -V` | Print detailed output. | From `carabiner.jsonc` or `false` |
+| `--silent, -s` | Suppress normal output. | From `carabiner.jsonc` or `false` |
 
 !!! info "Shared output directories"
-    Some targets intentionally write to the same directories, including `.agents/agents/`, `.agents/skills/`, and other cross-vendor roots. The orphan sweep runs only after every target and feature finishes writing. It never removes a path written during the current run, so one target cannot remove a sibling's fresh output. A synchronized tree produces no changes under `--check`. The sweep removes only files in generated directories that no `.carabiner/` source produces.
+    Some targets intentionally write to the same directories, including `.agents/agents/`, `.agents/skills/`, and other cross-vendor roots. Cleanup runs after each feature renders its current output. Ownership checks preserve paths shared with another target or feature, so one target cannot remove a sibling's output. A synchronized tree produces no changes under `--check`. Cleanup removes only files in generated directories that no `.carabiner/` source produces.
 
 ### Examples
 
@@ -149,8 +153,8 @@ carabiner generate --input-roots ~/.aiglobal/.carabiner --targets "*" --features
 # Preview changes without writing files
 carabiner generate --dry-run --targets claudecode --features rules
 
-# Fail if generated files are not current
-carabiner generate --check --targets "*" --features "*"
+# Fail if configured generated files are not current
+carabiner generate --check
 
 # Regenerate when source files change
 carabiner generate --watch
@@ -175,7 +179,7 @@ The environment variable must name a usable directory. An empty value is ignored
 
 ### Shared Configuration Files
 
-Carabiner merges some output files rather than owning them because a tool or user can keep unrelated settings in the same file. These files are `.amp/settings.json(c)`, `.antigravity/settings.json`, `.claude/settings.json`, `.claude/settings.local.json`, `.codex/config.toml`, `.copilot/settings.json`, `.devin/config.json`, `.factory/settings.json`, `.github/copilot/settings.json`, `.grok/config.toml`, `.vibe/config.toml`, `.vscode/settings.json`, `.zed/settings.json`, `kilo.json(c)`, `opencode.json(c)`, and `reasonix.toml`. `carabiner gitignore` deliberately does not add them to `.gitignore`, which lets hand-authored settings stay under version control.
+Carabiner merges some output files rather than owning them because a tool or user can keep unrelated settings in the same file. These files are `.amp/settings.json(c)`, `.antigravity/settings.json`, `.claude/settings.json`, `.claude/settings.local.json`, `.codex/config.toml`, `.copilot/settings.json`, `.devin/config.json`, `.factory/settings.json`, `.github/copilot/settings.json`, `.grok/config.toml`, `.rovodev/config.yml`, `.rovodev/mcp.json`, `.vibe/config.toml`, `.vscode/settings.json`, `.zed/settings.json`, `kilo.json(c)`, `opencode.json(c)`, and `reasonix.toml`. `carabiner gitignore` deliberately does not add them to `.gitignore`, which lets hand-authored settings stay under version control.
 
 Because these files can be committed, `generate` does not create one solely for an empty payload. If Carabiner has nothing to add, such as when no permissions map to a tool, the file remains absent instead of being written as `{}`. An existing file is still rewritten normally, so hand-authored settings are not removed. Every other generated file is written even when empty because its existence is part of Carabiner's output.
 
@@ -288,39 +292,40 @@ The selected configuration file must already exist. Run `carabiner init` first o
 | `--rules-path <path>` | Rule path within the source. Defaults to `rules`. |
 | `--registry <url>` | npm-compatible registry URL. |
 | `--token-env <name>` | Environment variable that holds the npm registry token. |
-| `--token <token>` | GitHub token for private repositories. |
+| `--token <token>` | Explicit GitHub or npm token. For HTTPS GitHub sources, it overrides `GITHUB_TOKEN` and `GH_TOKEN`; for npm sources, it is used when `tokenEnv` is absent. |
 | `--config <path>` | Configuration file to edit. Defaults to `carabiner.jsonc`. |
 
 When neither `--skills` nor `--rules` is supplied, every skill is installed for backward compatibility. Supplying only `--rules` installs no skills.
 
 ## Fetch Command
 
-`fetch` copies configuration files directly from GitHub repositories. GitLab support is planned.
+`fetch` copies configuration from a local source directory or a Git repository. GitHub shorthand and GitHub URLs are supported directly; GitLab URLs and the `gitlab:` prefix are intentionally rejected until provider support is added.
 
 !!! note
     This feature is still in development and may change in future releases.
 
-`fetch` looks for feature directories such as `rules/`, `commands/`, `skills/`, and `subagents/` at the chosen repository path. It does not require a `.carabiner/` directory, so it can read external repositories such as `vercel-labs/agent-skills` and `anthropics/skills`.
+`fetch` looks for feature directories such as `rules/`, `commands/`, `skills/`, and `subagents/` at the chosen source path. It does not require a `.carabiner/` directory, so it can read external repositories such as `vercel-labs/agent-skills` and `anthropics/skills`.
 
 ### Source Formats
 
 ```bash
-# Full URL
+# GitHub URLs and shorthand
 carabiner fetch https://github.com/owner/repo
 carabiner fetch https://github.com/owner/repo/tree/branch
 carabiner fetch https://github.com/owner/repo/tree/branch/path/to/subdir
-carabiner fetch https://gitlab.com/owner/repo  # GitLab support is planned
-
-# Provider prefix
 carabiner fetch github:owner/repo
-carabiner fetch gitlab:owner/repo              # GitLab support is planned
-
-# GitHub shorthand
 carabiner fetch owner/repo
 carabiner fetch owner/repo@ref        # Branch, tag, or commit
 carabiner fetch owner/repo:path       # Subdirectory
 carabiner fetch owner/repo@ref:path   # Reference and subdirectory
+
+# Local directories and generic Git remotes
+carabiner fetch ./shared-skills
+carabiner fetch file:///path/to/source
+carabiner fetch ssh://git@example.com/team/skills.git
+carabiner fetch git@example.com:team/skills.git
 ```
+
 
 ### Options
 
@@ -334,7 +339,7 @@ carabiner fetch owner/repo@ref:path   # Reference and subdirectory
 | `--path, -p <path>` | Repository subdirectory to fetch. | Repository root |
 | `--skills <skills>` | Comma-separated skill names to fetch. Requires the skills feature. | All skills |
 | `--interactive, -i` | Select skills through an interactive prompt. Requires the skills feature and a terminal. | Disabled |
-| `--token <token>` | Git provider token for private repositories. | `GITHUB_TOKEN` or `GH_TOKEN` |
+| `--token <token>` | GitHub token for a private HTTPS `github.com` source. `--token` takes precedence; otherwise `GITHUB_TOKEN` or `GH_TOKEN` is used. | None |
 
 ### Examples
 
@@ -352,8 +357,8 @@ carabiner fetch anthropics/skills --interactive
 # Select skills interactively with pdf selected initially
 carabiner fetch anthropics/skills --interactive --skills pdf
 
-# Fetch every feature from a public repository
-carabiner fetch findyourexit/carabiner --path .carabiner --features "*"
+# Fetch the repository's official starter skills
+carabiner fetch findyourexit/carabiner
 
 # Fetch rules and commands from a tag
 carabiner fetch owner/repo@v1.0.0 --features rules,commands
@@ -385,6 +390,7 @@ Use this command for a one-time tool-to-tool conversion, such as translating Cur
 | `--from <tool>` | Source tool. Only one tool is allowed. | Required |
 | `--to <tools>` | Comma-separated destination tools, such as `copilot,claudecode`. | Required |
 | `--features, -f <features>` | Comma-separated features to convert: rules, commands, subagents, skills, ignore, mcp, hooks, permissions, and checks. | `*` |
+| `--config, -c <path>` | Project configuration file to resolve. | `carabiner.jsonc` |
 | `--verbose, -V` | Print detailed output. | `false` |
 | `--silent, -s` | Suppress output. | `false` |
 | `--global, -g` | Convert user-scope configuration files. | `false` |
@@ -418,7 +424,7 @@ carabiner convert --from cursor --to copilot,claudecode --dry-run
 
 `doctor` performs read-only diagnostics on `carabiner.jsonc` and `carabiner.local.jsonc`. It groups findings as `error`, `warning`, or `info` and never writes files. Use it when generation does not behave as expected or as a continuous integration check.
 
-It can identify silently ignored configuration. The schema accepts unknown keys, so a misspelling such as `"target"` instead of `"targets"` normally causes no error. `doctor` reports each unknown key with a suggestion.
+The configuration loader accepts unknown keys for forward compatibility, so a misspelling such as `"target"` instead of `"targets"` normally causes no generation error. `doctor` reports each unknown key with a suggestion; editor JSON Schema validation may flag the same key before generation.
 
 ### Checks
 
@@ -432,7 +438,7 @@ It can identify silently ignored configuration. The schema accepts unknown keys,
 - Structural schema violations in other keys, such as incorrect types or malformed `sources` entries.
 - A `sources[].tokenEnv` value that names an unset environment variable.
 - An `inputRoot` value or first `inputRoots` entry that does not name an existing directory. Later `inputRoots` entries are optional overlays and can be absent.
-- An `inputRoot` or `inputRoots` entry that is empty. This causes `generate` to fail with `outputRoot cannot be an empty string` before resolving a source tree.
+- An empty `inputRoots` array is invalid. An empty `inputRoot` value or empty `inputRoots` entry causes `generate` to fail with `input root must be a non-empty path without control characters` before resolving a source tree.
 - Duplicate `inputRoots` entries. Duplicates are ignored by `generate`.
 
 ### Options
@@ -558,3 +564,36 @@ GITHUB_TOKEN=$(gh auth token) carabiner release-notes owner/private-repo
 - A repository with no matching releases completes with code `0` and no release entries.
 - A date-range query examines every release returned by the API rather than stopping at the first release outside the range. A release published from a long-lived branch can appear out of publication order.
 - By default, output is Markdown on standard output and can be piped to another tool. With the global `--json` option, releases are emitted as structured `data` and no Markdown is printed. Failures use the standard error document with the `RELEASE_NOTES_FAILED` code.
+
+## Update Command
+
+`update` checks the newest non-draft, non-prerelease GitHub release and can replace the executable currently running the command. By default it uses `findyourexit/carabiner` and the raw updater assets published with each release.
+
+### Usage
+
+```bash
+# Check the latest release without replacing the executable.
+carabiner update --check
+
+# Update the executable in place.
+carabiner update
+
+# Update from a fork or private distribution with matching release assets.
+carabiner update --repository owner/carabiner --asset-prefix carabiner
+```
+
+### Options
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--check` | Report whether a newer release exists without downloading or replacing the executable. | `false` |
+| `--force` | Replace the executable even when its version is already current. | `false` |
+| `--repository <owner/repo>` | GitHub repository or GitHub URL that supplies releases. Overrides `CARABINER_UPDATE_REPOSITORY`. | `findyourexit/carabiner` |
+| `--asset-prefix <prefix>` | Prefix of the platform-specific raw binary asset. Overrides `CARABINER_UPDATE_ASSET_PREFIX`. | `carabiner` |
+| `--token <token>` | GitHub token for private releases or higher rate limits. `GITHUB_TOKEN` and `GH_TOKEN` are used when it is omitted. | None |
+
+### Behavior
+
+- The updater supports macOS, Linux, and Windows on `aarch64` and `x86_64` when the release provides the matching raw asset.
+- It downloads `SHA256SUMS` and verifies the downloaded binary before replacing the current executable. A missing asset, checksum, unsupported platform, or unwritable executable location fails without replacing it.
+- `--check` contacts GitHub but does not write files. The update path needs permission to replace the executable it is currently running.

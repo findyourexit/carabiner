@@ -32,7 +32,7 @@ Use the array form of `targets` when every selected target should receive the sa
   // A monorepo can list multiple roots when each package needs generated configuration.
   "outputRoots": ["."],
 
-  // Remove existing generated files before writing.
+  // Remove generated files that are no longer produced by the current source.
   "delete": true,
 
   // Print detailed output.
@@ -78,11 +78,15 @@ When `gitignoreTargetsOnly` is `true`, which is the default, `carabiner gitignor
 
 Unless you pass an explicit `--targets` option, Carabiner adds `agentsmd` entries for `AGENTS.md` and related paths whenever a configuration file exists and `agentsmd` is not already selected. Many AI tools read those conventional files, so the entries help prevent generated rules from being committed by mistake.
 
+!!! warning "Google Antigravity output"
+    Do not add Antigravity's `.agents/rules/`, `.agents/workflows/`, or `.agents/skills/` directories to `.gitignore`: Antigravity will not load them. Use `.git/info/exclude` for clone-local exclusions instead. See the [FAQ](../faq.md#why-does-google-antigravity-not-load-rules-when-agents-directories-are-in-gitignore).
+
+
 ## Per-Target Features
 
 The `targets` option accepts either an array or an object. Use an object to choose features separately for each target:
 
-=== "Array form"
+=== "Per-target feature lists"
 
     ```jsonc title="carabiner.jsonc"
     {
@@ -110,7 +114,7 @@ The `targets` option accepts either an array or an object. Use an object to choo
     }
     ```
 
-=== "Object form"
+=== "Per-feature options"
 
     ### Per-feature options
 

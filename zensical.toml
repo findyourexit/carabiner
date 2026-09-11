@@ -24,6 +24,7 @@ nav = [
     { "Simulated Features" = "guide/simulated-features.md" },
     { "Official Skills" = "guide/official-skills.md" },
     { "Why Carabiner" = "guide/why-carabiner.md" },
+    { "Case Studies" = "guide/case-studies.md" },
   ]},
   { "Reference" = [
     { "CLI Commands" = "reference/cli-commands.md" },

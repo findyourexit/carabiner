@@ -1,6 +1,7 @@
 use carabiner::engine::{export_canonical_to_tool_directory, import_from_tool, ImportOptions};
 use carabiner::model::Feature;
 use carabiner::targets::{all_features, all_targets, target_spec};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -70,6 +71,20 @@ fn supported_features(target: &str, global: bool) -> Vec<String> {
         .into_iter()
         .filter(|feature| spec.supports(*feature, global, false))
         .map(|feature| feature.as_str().to_owned())
+        .collect()
+}
+
+fn schema_enum(schema: &serde_json::Value, definition: &str) -> HashSet<String> {
+    schema["$defs"][definition]["enum"]
+        .as_array()
+        .unwrap_or_else(|| panic!("schema definition '{definition}' must contain an enum"))
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .unwrap_or_else(|| panic!("schema definition '{definition}' must contain strings"))
+                .to_owned()
+        })
         .collect()
 }
 
@@ -224,4 +239,150 @@ fn hermes_project_generation_uses_userprofile_when_home_is_unset() {
     );
 
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn documentation_support_matrices_match_target_metadata() {
+    let feature_names = [
+        "rules",
+        "ignore",
+        "mcp",
+        "commands",
+        "subagents",
+        "skills",
+        "hooks",
+        "permissions",
+        "checks",
+    ];
+    let mut reference_rows = HashMap::new();
+    for line in include_str!("../docs/reference/supported-tools.md").lines() {
+        let cells = line
+            .trim()
+            .trim_matches('|')
+            .split('|')
+            .map(str::trim)
+            .collect::<Vec<_>>();
+        if cells.len() != 11 || !cells[1].starts_with('`') {
+            continue;
+        }
+        let target = cells[1].trim_matches('`').to_owned();
+        reference_rows.insert(cells[0].to_owned(), (target, cells[2..].to_vec()));
+    }
+    let documented_targets = reference_rows
+        .values()
+        .map(|(target, _)| target.clone())
+        .collect::<HashSet<_>>();
+    let expected_targets = all_targets().into_iter().collect::<HashSet<_>>();
+    assert_eq!(documented_targets, expected_targets);
+
+    for (display, (target, cells)) in &reference_rows {
+        let spec = target_spec(target).unwrap_or_else(|| panic!("unknown target {target}"));
+        for (index, feature_name) in feature_names.iter().enumerate() {
+            let feature = Feature::ALL
+                .into_iter()
+                .find(|feature| feature.as_str() == *feature_name)
+                .unwrap();
+            let project = spec.supports(feature, false, true);
+            let project_native = spec.supports(feature, false, false);
+            let global = spec.supports(feature, true, true);
+            let expected = match (project, project_native, global) {
+                (true, false, false) => "Project, simulated",
+                (true, _, true) => "Project and global",
+                (true, _, false) => "Project",
+                (false, _, true) => "Global",
+                (false, _, false) => "",
+            };
+            let actual = cells[index]
+                .strip_suffix(", preserves tool selection")
+                .unwrap_or(cells[index]);
+            assert_eq!(actual, expected, "{display} / {feature_name}");
+        }
+    }
+
+    let aliases = [
+        ("DeepAgents", "deepagents-cli"),
+        ("Rovo Dev", "Rovodev (Atlassian)"),
+        ("Kiro", "Kiro legacy"),
+        ("Kiro ⚠️", "Kiro legacy"),
+        ("Roo Code ⚠️", "Roo Code legacy"),
+        ("AugmentCode (legacy) ⚠️", "AugmentCode legacy"),
+        ("Claude Code (legacy) ⚠️", "Claude Code legacy"),
+    ];
+    let mut readme_targets = HashSet::new();
+    for line in include_str!("../README.md").lines() {
+        let cells = line
+            .trim()
+            .trim_matches('|')
+            .split('|')
+            .map(str::trim)
+            .collect::<Vec<_>>();
+        if cells.len() != 10 || cells[0] == "Tool" || cells[0] == "---" {
+            continue;
+        }
+        let reference_display = aliases
+            .iter()
+            .find(|(readme, _)| *readme == cells[0])
+            .map(|(_, reference)| *reference)
+            .unwrap_or(cells[0]);
+        let target = reference_rows
+            .get(reference_display)
+            .map(|(target, _)| target)
+            .unwrap_or_else(|| panic!("README target {} is absent from reference", cells[0]));
+        readme_targets.insert(target.clone());
+        let spec = target_spec(target).unwrap();
+        for (index, feature_name) in feature_names.iter().enumerate() {
+            let feature = Feature::ALL
+                .into_iter()
+                .find(|feature| feature.as_str() == *feature_name)
+                .unwrap();
+            let expected =
+                spec.supports(feature, false, true) || spec.supports(feature, true, true);
+            let actual = matches!(cells[index + 1], "✅" | "(s)");
+            assert_eq!(actual, expected, "README {} / {}", cells[0], feature_name);
+        }
+    }
+    assert_eq!(readme_targets, expected_targets);
+}
+
+#[test]
+fn configuration_schema_target_sets_match_target_metadata() {
+    let schema: serde_json::Value =
+        serde_json::from_str(include_str!("../schemas/config-schema.json")).unwrap();
+    let expected_targets = all_targets().into_iter().collect::<HashSet<_>>();
+    assert_eq!(schema_enum(&schema, "targetName"), expected_targets);
+
+    let mut expected_selectors = expected_targets;
+    expected_selectors.insert("*".into());
+    assert_eq!(schema_enum(&schema, "targetSelector"), expected_selectors);
+
+    let mut expected_features = all_features().into_iter().collect::<HashSet<_>>();
+    expected_features.insert("*".into());
+    assert_eq!(schema_enum(&schema, "featureName"), expected_features);
+}
+
+#[test]
+fn mcp_schema_target_set_matches_target_metadata() {
+    let schema: serde_json::Value =
+        serde_json::from_str(include_str!("../schemas/mcp-schema.json")).unwrap();
+    let expected_targets = all_targets()
+        .into_iter()
+        .filter(|target| {
+            let spec = target_spec(target).unwrap();
+            spec.supports(Feature::Mcp, false, true) || spec.supports(Feature::Mcp, true, true)
+        })
+        .filter(|target| {
+            !matches!(
+                target.as_str(),
+                "claudecode-legacy" | "kiro-cli" | "kiro-ide"
+            )
+        })
+        .collect::<HashSet<_>>();
+    assert_eq!(schema_enum(&schema, "mcpTargetName"), expected_targets);
+    assert_eq!(
+        schema_enum(&schema, "transport"),
+        ["local", "stdio", "sse", "http", "ws", "streamable-http"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    );
 }

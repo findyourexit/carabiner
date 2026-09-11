@@ -32,7 +32,7 @@ This policy applies in project spaces and when someone represents Carabiner in p
 
 ## Enforcement
 
-Report unacceptable behavior privately to the project lead through the contact methods listed on the [findyourexit GitHub profile](https://github.com/findyourexit). Reports will be reviewed promptly and handled confidentially to the extent possible.
+Report unacceptable behavior privately by emailing `tom.larcher@gmail.com`. Reports will be reviewed promptly and handled confidentially to the extent possible.
 
 ## Attribution
 

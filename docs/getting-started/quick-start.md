@@ -17,9 +17,9 @@ Edit the source files in `.carabiner/`, then generate configuration for the AI c
 carabiner generate --targets "claudecode,cursor,copilot" --features "rules,mcp,commands,subagents,skills"
 ```
 
-## Add Official Skills
+## Add the Official Skills
 
-Fetch the official skill collection into `.carabiner/`. By default, `fetch` requests skills and writes the fetched files to that directory.
+The Carabiner repository publishes starter skills under `skills/`. Fetch them into `.carabiner/`:
 
 ```bash
 carabiner fetch findyourexit/carabiner
@@ -36,4 +36,4 @@ carabiner import --targets copilot
 carabiner import --targets claudecode --features rules,mcp,commands,subagents
 ```
 
-For every command and option, see [CLI Commands](/reference/cli-commands).
+For every command and option, see [CLI Commands](../reference/cli-commands.md).

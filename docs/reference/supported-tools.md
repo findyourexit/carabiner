@@ -2,6 +2,8 @@
 
 Carabiner supports generation and import for the 42 target names below. Use target names exactly as shown with `--targets`.
 
+Compatibility statements in this reference identify the last upstream baseline Carabiner validated. They are not a promise that later tool releases preserve the same contract; re-run the target compatibility suite and update the stated baseline when an upstream release changes its file formats or lifecycle behavior.
+
 ## Install and select targets
 
 Install Carabiner with:
@@ -75,7 +77,7 @@ Use `carabiner import --targets <target>` to import a supported target configura
 
 ## Hermes Agent
 
-The `hermesagent` target is validated against Hermes Agent v0.20.2 (release `v2026.8.16`). The supported contract includes project rules, ignore patterns, subagents, and checks. It also includes global MCP servers, commands, subagents, skills, hooks, and permissions. Generation, `--check`, and import round-trips are covered for both advertised scopes.
+The `hermesagent` target was last validated against Hermes Agent v0.20.2 (release `v2026.8.16`). Upstream now publishes Hermes Agent v0.21.1 (release `v2026.9.7`); newer upstream behavior is not implied until the adapter is revalidated. The supported contract below covers project rules, ignore patterns, subagents, and checks, plus global MCP servers, commands, subagents, skills, hooks, and permissions. Generation, `--check`, and import round-trips are covered for the stated baseline in both advertised scopes.
 
 Carabiner honors Hermes profiles through `HERMES_HOME`. When it is set, its value is the profile root. Global configuration is read and written directly under `$HERMES_HOME`, including `config.yaml`, `skills/`, `plugins/`, and `carabiner/`. Carabiner does not append `.hermes`. When `HERMES_HOME` is unset, Carabiner follows Hermes's platform default: `~/.hermes` except on Windows, where it uses `%LOCALAPPDATA%\hermes`. Because `HERMES_HOME` identifies the profile Hermes reads, it takes precedence over `--output-roots` in global scope. Project-scoped paths remain rooted in the project.
 

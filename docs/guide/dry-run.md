@@ -15,7 +15,7 @@ The preview uses the same configuration and source files as a normal generation 
 Use `--check` in automated checks to confirm that generated files are current. It performs the same no-write comparison and exits with status code `1` when files differ from the generated output.
 
 ```bash
-carabiner generate --check --targets "*" --features "*"
+carabiner generate --check
 ```
 
 `--dry-run` and `--check` cannot be used together.

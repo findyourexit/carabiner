@@ -10,10 +10,11 @@ Thank you for improving Carabiner. Contributions are welcome across Rust code, t
 
 ## Development setup
 
-Carabiner uses Rust 1.98 and the 2021 edition. The pinned toolchain is declared in `rust-toolchain.toml`.
+Carabiner uses Rust 1.98 for development and the 2021 edition. The package MSRV is Rust 1.82. The pinned development toolchain is declared in `rust-toolchain.toml`.
 
 ```console
 cargo check --all-targets --locked
+cargo +1.82.0 check --all-targets --locked
 cargo test --locked
 cargo clippy --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
