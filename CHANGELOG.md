@@ -16,6 +16,7 @@ All notable Carabiner changes are documented here. The format follows [Keep a Ch
 - Canonical MCP sources now reject incomplete explicit transports and ambiguous command/URL inference; malformed shared permission maps now fail instead of silently generating no permissions.
 - GitHub tokens now authenticate HTTPS GitHub source clones for `fetch`, `add`, and every `install` mode without exposing the token in the clone URL.
 - Claude Code MCP output now normalizes canonical transport and connection aliases, preventing remote servers from being emitted without the explicit `type` required by Claude Code.
+- Adopted the Contributor Covenant Code of Conduct, version 2.1.
 
 ## [0.1.5] - 2026-09-08
 
