@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/carabiner-header.png" alt="Carabiner, a unified CLI for managing AI rules and configuration across AI coding tools" />
+  <img src="https://raw.githubusercontent.com/findyourexit/carabiner/main/assets/carabiner-header.png" alt="Carabiner, a unified CLI for managing AI rules and configuration across AI coding tools" />
 </p>
 
 # Carabiner
@@ -53,8 +53,8 @@ carabiner --version
 # Scaffold the canonical source directory and a sample configuration file
 carabiner init
 
-# Generate tool-specific files for all configured targets
-carabiner generate --targets "*" --features "*"
+# Generate files for the targets and features configured by `carabiner init`
+carabiner generate
 ```
 
 If you already have AI tool configuration files in your project, import them first:
@@ -77,6 +77,7 @@ Carabiner operates on a canonical source directory and a project configuration f
 | MCP servers | Model context protocol server list |
 | Hooks | Pre- and post-tool-use shell hooks |
 | Permissions | Tool allow and deny rules |
+| Checks | Code-review and quality-gate instructions |
 | Ignore | Paths excluded from AI context |
 
 ## Supported Tools
@@ -109,7 +110,7 @@ The tables below show which features each tool supports. A checkmark means the f
 | Kimi Code | ✅ | | ✅ | | ✅ | ✅ | ✅ | ✅ | |
 | Kiro CLI | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
 | Kiro IDE | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
-| Meta Muse Code | ✅ | | | | | ✅ | | | |
+| Meta Muse Code | ✅ | | ✅ | | | ✅ | | | |
 | OpenCode | ✅ | | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
 | Pi Coding Agent | ✅ | | | ✅ | | ✅ | ✅ | ✅ | |
 | Qwen Code | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | |
@@ -125,7 +126,7 @@ The tables below show which features each tool supports. A checkmark means the f
 
 ### Legacy and Plugin Targets
 
-These targets are excluded from `--targets "*"`. Use them only by naming them explicitly.
+The first four targets below are excluded from `--targets "*"` and must be named explicitly. The deprecated `kiro` alias remains included for backward compatibility; new projects should use `kiro-cli` or `kiro-ide`.
 
 | Tool | rules | ignore | mcp | commands | subagents | skills | hooks | permissions | checks |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
@@ -156,12 +157,13 @@ These targets are excluded from `--targets "*"`. Use them only by naming them ex
 | `carabiner generate` | Write tool-specific files from your canonical sources |
 | `carabiner import` | Convert a tool's native config into canonical form |
 | `carabiner convert` | Convert directly between two tool formats |
-| `carabiner add` | Add a remote source to your configuration |
-| `carabiner fetch` | Fetch rules or skills from a remote source |
+| `carabiner add` | Scaffold a canonical feature or add a source |
+| `carabiner fetch` | Fetch rules or skills from a local or remote source |
 | `carabiner install` | Install all sources declared in the project configuration file |
-| `carabiner gitignore` | Append generated-file paths to `.gitignore` |
+| `carabiner gitignore` | Manage generated-file paths in `.gitignore` or `.gitattributes` |
 | `carabiner doctor` | Diagnose configuration problems |
 | `carabiner docs` | Read documentation in the terminal |
+| `carabiner release-notes` | Print GitHub release notes for a repository |
 | `carabiner update` | Update from the official release; use `--repository` for a fork or private distribution |
 | `carabiner mcp` | Run Carabiner as an MCP server |
 
@@ -177,6 +179,12 @@ Run `carabiner <command> --help` for full option details.
 - [Global Mode](docs/guide/global-mode.md)
 - [Plugin Packaging](docs/guide/plugin-packaging.md)
 - [Dry Run and Check Mode](docs/guide/dry-run.md)
+- [Simulated Features](docs/guide/simulated-features.md)
+- [Official Skills](docs/guide/official-skills.md)
+- [Why Carabiner](docs/guide/why-carabiner.md)
+- [Case Studies](docs/guide/case-studies.md)
+- [Command Syntax](docs/reference/command-syntax.md)
+- [Takt Integration](docs/tools/takt.md)
 - [CLI Commands Reference](docs/reference/cli-commands.md)
 - [Supported Tools Reference](docs/reference/supported-tools.md)
 - [File Formats Reference](docs/reference/file-formats.md)
@@ -187,7 +195,9 @@ Run `carabiner <command> --help` for full option details.
 ## Development
 
 ```console
-cargo fmt --check
+cargo check --all-targets --locked
+cargo fmt --all -- --check
 cargo clippy --all-targets --locked -- -D warnings
 cargo test --locked
+cargo deny check
 ```

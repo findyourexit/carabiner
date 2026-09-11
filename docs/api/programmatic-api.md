@@ -1,6 +1,6 @@
 # Programmatic API
 
-Carabiner exposes a Rust library for generating, importing, converting, and exporting AI-tool configuration. The crate root re-exports the primary operations, options, result types, `all_targets`, and `all_features`.
+Carabiner exposes a Rust library for generating, importing, converting, and exporting AI-tool configuration. The crate root re-exports the primary operations, configuration/import/convert options, result types, `all_targets`, and `all_features`.
 
 ## Install the CLI
 
@@ -15,14 +15,14 @@ cargo install carabiner --locked
 ```toml
 [dependencies]
 anyhow = "1"
-carabiner = "0.1.0"
+carabiner = "0.1.5"
 ```
 
 The high-level operations return `anyhow::Result`. They resolve configuration through `Config::resolve`. Explicit option values take precedence over `carabiner.jsonc`, whose sibling `carabiner.local.jsonc` file overlays its values. Built-in defaults apply when neither an option nor a configuration file supplies a value.
 
 ## Generate configuration
 
-`generate(options: GenerateOptions) -> anyhow::Result<GenerateResult>` reads a canonical source tree and writes target-specific configuration. `GenerateOptions` is the public type alias for `ConfigOptions` in `carabiner::engine`.
+`generate(options: ConfigOptions) -> anyhow::Result<GenerateResult>` reads a canonical source tree and writes target-specific configuration. `GenerateOptions` is the equivalent public type alias under `carabiner::engine`; `ConfigOptions` is the crate-root spelling used in the example below.
 
 ```rust
 use anyhow::Result;

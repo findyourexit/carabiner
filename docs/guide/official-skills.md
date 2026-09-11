@@ -1,6 +1,6 @@
 # Official Skills
 
-Carabiner can fetch skills from GitHub repositories into a project's `.carabiner/` directory. The official collection is published with the Carabiner project.
+Carabiner publishes starter skills in the repository's `skills/` directory. Fetch them into a project's `.carabiner/` directory with the `fetch` command.
 
 ## Fetch the Collection
 
@@ -8,14 +8,14 @@ Carabiner can fetch skills from GitHub repositories into a project's `.carabiner
 carabiner fetch findyourexit/carabiner
 ```
 
-By default, `fetch` requests the `skills` feature and writes fetched files to `.carabiner/`.
+The collection currently includes the `project-context` skill. By default, `fetch` requests the `skills` feature and writes fetched files to `.carabiner/`.
 
 ## Choose Skills Interactively
 
-Use an interactive terminal to choose individual skills from the source.
+Use an interactive terminal to choose individual skills from the collection:
 
 ```bash
 carabiner fetch findyourexit/carabiner --interactive
 ```
 
-You can also declare a source in `carabiner.jsonc` and run `carabiner install`. See [Declarative Skill Sources](/guide/declarative-sources) for the source format.
+You can also declare a source in `carabiner.jsonc` and run `carabiner install`. See [Declarative Skill Sources](declarative-sources.md) for the source format.

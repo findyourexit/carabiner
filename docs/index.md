@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/findyourexit/carabiner/main/assets/carabiner-header.png" alt="Carabiner — unified AI rules management CLI" />
+  <img src="https://raw.githubusercontent.com/findyourexit/carabiner/main/assets/carabiner-header.png" alt="Carabiner, a unified CLI for managing AI rules and configuration across AI coding tools" />
 </p>
 
 # Carabiner
@@ -13,7 +13,7 @@ Install Carabiner and scaffold a new project:
 ```console
 cargo install carabiner --locked
 carabiner init
-carabiner generate --targets "*" --features "*"
+carabiner generate
 ```
 
 See [Installation](getting-started/installation.md) for Homebrew and build-from-source options, and [Quick Start](getting-started/quick-start.md) for a guided walkthrough.
@@ -31,10 +31,10 @@ Carabiner reads from a `.carabiner/` source directory and a `carabiner.jsonc` co
 | MCP servers | Model context protocol server list |
 | Hooks | Pre- and post-tool-use shell hooks |
 | Permissions | Tool allow and deny rules |
+| Checks | Code-review and quality-gate instructions |
+| Ignore | Legacy path exclusions; prefer permissions for new projects |
 
-## Supported Tools
-
-Carabiner generates and imports configuration for 42 AI coding tools. See the [Supported Tools reference](reference/supported-tools.md) for the full compatibility matrix.
+Carabiner generates and imports configuration for 42 supported target names, including AI coding tools and open standards. See the [Supported Tools reference](reference/supported-tools.md) for the full compatibility matrix.
 
 ## Source
 

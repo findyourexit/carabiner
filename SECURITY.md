@@ -2,11 +2,12 @@
 
 ## Supported Versions
 
-Carabiner supports the latest stable release. Security fixes are applied to the current release only.
+Carabiner supports the latest published `0.1.x` release. Security fixes are applied to the current release only; the public API and configuration formats may change before 1.0.0.
 
 | Version | Status |
 |---|---|
-| `0.1.x` | Current pre-release line |
+| `0.1.5` | Current supported pre-release |
+| Earlier `0.1.x` releases | Upgrade to `0.1.5` |
 | `main` | Development only |
 
 ## Report Privately
@@ -22,7 +23,7 @@ Report issues such as:
 - Dependency or release-integrity vulnerabilities
 - Any defect that causes files to be written to unintended locations
 
-If private vulnerability reporting is unavailable, email the lead maintainer at `tom.larcher@gmail.com`, the public maintainer contact listed in `Cargo.toml`.
+If private vulnerability reporting is unavailable, email the lead maintainer at `tom.larcher@gmail.com`.
 
 ## What to Include
 

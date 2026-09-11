@@ -2,7 +2,7 @@
 
 ## Why does `carabiner generate` not produce the expected output?
 
-Run `carabiner doctor` first. It performs read-only checks on `carabiner.jsonc` and `carabiner.local.jsonc`. It reports problems that generation tolerates, especially misspelled or unknown configuration keys. The configuration schema is non-strict, so a typo such as `"target"` instead of `"targets"` can otherwise be ignored and generation can fall back to defaults. See the [Doctor Command](./reference/cli-commands.md#doctor-command) reference for all checks.
+Run `carabiner doctor` first. It performs read-only checks on `carabiner.jsonc` and `carabiner.local.jsonc`. It reports problems that generation tolerates, especially misspelled or unknown configuration keys. The configuration loader is permissive, so a typo such as `"target"` instead of `"targets"` can otherwise be ignored and generation can fall back to defaults. The JSON Schema remains available for editor validation and completion. See the [Doctor Command](./reference/cli-commands.md#doctor-command) reference for all checks.
 
 ## Why does the generated `.mcp.json` not work in Claude Code?
 
@@ -122,16 +122,16 @@ See the [Codex permissions reference](https://developers.openai.com/codex/permis
 
 ## How can I reduce generated-rule noise in pull request diffs?
 
-AI coding tools need to read generated rule files from the working tree, so Carabiner does not add them to `.gitignore`. With many configured targets, those files can dominate a pull request diff.
+The generator does not modify `.gitignore` automatically. Most target tools can still read generated files ignored in the working tree. [Google Antigravity is an exception](#why-does-google-antigravity-not-load-rules-when-agents-directories-are-in-gitignore): use `.git/info/exclude` for its `.agents/` rules, workflows, and skills instead. If you want generated files tracked but visually collapsed in GitHub diffs, use `.gitattributes` instead.
 
 Add generated paths to `.gitattributes` with GitHub's [`linguist-generated`](https://docs.github.com/en/repositories/working-with-files/managing-files/customizing-how-changed-files-appear-on-github#marking-files-as-generated) attribute. GitHub then collapses the files by default in pull requests while the files remain tracked and readable by the tools.
 
-For example, a repository using `.agent/`, Claude Code, Cursor, and Copilot targets can use:
+For example, a repository using `.agents/`, Claude Code, Cursor, and Copilot targets can use:
 
 ``` title=".gitattributes"
-.agent/rules/**           linguist-generated
-.agent/skills/**          linguist-generated
-.agent/workflows/**       linguist-generated
+.agents/rules/**           linguist-generated
+.agents/skills/**          linguist-generated
+.agents/workflows/**       linguist-generated
 CLAUDE.md                 linguist-generated
 .cursor/rules/**          linguist-generated
 .github/copilot-instructions.md linguist-generated

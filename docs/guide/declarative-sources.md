@@ -236,8 +236,8 @@ The `install` command accepts these flags:
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--mode <mode>`   | Install mode: `carabiner` (default), `apm`, or `gh`. See **Install Modes** above.                                                                                     |
 | `--update`        | Force re-resolve all source refs, ignoring the lockfile (useful to pull new updates).                                                                                |
-| `--frozen`        | Fail if a lockfile is missing or does not cover declared sources and rule selections. Fetches missing locked artifacts without updating the lockfile. Useful for CI. |
-| `--token <token>` | GitHub token for private repositories.                                                                                                                               |
+| `--frozen`        | Require a complete lockfile and matching cached artifacts. It never resolves or fetches sources and fails if the cache is missing or differs from the lockfile. Useful for CI. |
+| `--token <token>` | Explicit GitHub or npm token. For HTTPS GitHub sources, it overrides `GITHUB_TOKEN` and `GH_TOKEN`; for npm sources without `tokenEnv`, it overrides `NPM_TOKEN`. |
 
 ```bash
 # Install rules and skills using locked refs
@@ -315,7 +315,7 @@ It is safe (and recommended) to commit this file as well.
 
 ## Authentication
 
-GitHub transport uses the `GITHUB_TOKEN` or `GH_TOKEN` environment variable for authentication. This is required for private repositories and recommended for better rate limits. Git transport relies on your local git credential configuration (SSH keys, credential helpers, etc.). npm transport (experimental) uses the `NPM_TOKEN` environment variable, or the variable named by the per-source `tokenEnv` field; `.npmrc` files are not read.
+GitHub transport uses the `GITHUB_TOKEN` or `GH_TOKEN` environment variable for authentication. For an HTTPS `github.com` source, Carabiner supplies the token through Git's per-process configuration rather than embedding it in the clone URL. The explicit `--token` flag takes precedence over those environment variables. Git transport relies on your local git credential configuration (SSH keys, credential helpers, etc.). npm transport (experimental) uses the variable named by the per-source `tokenEnv` field when present; otherwise it uses `--token`, then `NPM_TOKEN`. `.npmrc` files are not read.
 
 ```bash
 # Using environment variable

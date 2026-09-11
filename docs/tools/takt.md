@@ -2,6 +2,8 @@
 
 [Takt](https://github.com/nrslib/takt) is an AI coding workflow tool that organizes prompts into facets. Carabiner writes the supported Takt facet files and configuration fields.
 
+Version-specific notes in this guide describe the upstream contracts Carabiner has implemented and should be revalidated against newer [Takt releases](https://github.com/nrslib/takt/releases) before relying on them in production.
+
 ## Facet output
 
 In project mode, Carabiner maps its source features to Takt facet directories as follows.

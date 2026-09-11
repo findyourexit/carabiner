@@ -4,7 +4,30 @@ All notable Carabiner changes are documented here. The format follows [Keep a Ch
 
 ## [Unreleased]
 
+### Added
+
+- Starter `project-context` skill collection under `skills/`, fetchable with `carabiner fetch findyourexit/carabiner`.
+
+### Changed
+
+- Documentation, schemas, and contributor workflows now reflect the current 0.1.x behavior and validation contracts.
+- Unknown top-level canonical hook events are rejected instead of being passed through silently.
+- Canonical MCP sources now reject a server that defines both `type` and `transport`, removing adapter-dependent transport precedence.
+- Canonical MCP sources now reject incomplete explicit transports and ambiguous command/URL inference; malformed shared permission maps now fail instead of silently generating no permissions.
+- GitHub tokens now authenticate HTTPS GitHub source clones for `fetch`, `add`, and every `install` mode without exposing the token in the clone URL.
+- Claude Code MCP output now normalizes canonical transport and connection aliases, preventing remote servers from being emitted without the explicit `type` required by Claude Code.
+
 ## [0.1.5] - 2026-09-08
+
+### Fixed
+
+- Windows now uses `USERPROFILE` when `HOME` is unset, restoring Hermes Agent project generation and Windows compatibility coverage.
+
+### Notes
+
+- This release reissues the 0.1.4 Windows compatibility fix after release metadata recovery.
+
+## [0.1.4] - 2026-09-08
 
 ### Fixed
 
@@ -14,11 +37,16 @@ All notable Carabiner changes are documented here. The format follows [Keep a Ch
 
 ### Fixed
 
+- Release builds now install Cross through Bash on Windows cross-compilation targets.
+
+## [0.1.2] - 2026-09-08
+
+### Fixed
+
 - MCP file operations now reject symlinked destination paths, including nested skill files and deletes.
 - `install --frozen` now validates cached artifact hashes and never fetches mutable source state.
 - The release workflow now publishes the raw platform assets consumed by `carabiner update`.
 - Codex CLI project capabilities no longer advertise unsupported project-scoped commands.
-- Release builds now install Cross through Bash on Windows cross-compilation targets.
 
 ### Changed
 
