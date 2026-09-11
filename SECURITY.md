@@ -6,8 +6,8 @@ Carabiner supports the latest published `0.1.x` release. Security fixes are appl
 
 | Version | Status |
 |---|---|
-| `0.1.5` | Current supported pre-release |
-| Earlier `0.1.x` releases | Upgrade to `0.1.5` |
+| `0.1.6` | Current supported pre-release |
+| Earlier `0.1.x` releases | Upgrade to `0.1.6` |
 | `main` | Development only |
 
 ## Report Privately

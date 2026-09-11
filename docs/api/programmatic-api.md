@@ -15,7 +15,7 @@ cargo install carabiner --locked
 ```toml
 [dependencies]
 anyhow = "1"
-carabiner = "0.1.5"
+carabiner = "0.1.6"
 ```
 
 The high-level operations return `anyhow::Result`. They resolve configuration through `Config::resolve`. Explicit option values take precedence over `carabiner.jsonc`, whose sibling `carabiner.local.jsonc` file overlays its values. Built-in defaults apply when neither an option nor a configuration file supplies a value.
