@@ -2,7 +2,7 @@
 
 ## The 0.1.x Pre-Release Line
 
-The current `0.1.x` line is supported before the stable 1.0.0 release. The command-line interface, configuration file format, and programmatic API may change before 1.0.0. The current release is `0.1.5`. Start with [Getting Started](docs/getting-started/installation.md) and report defects through the [issue tracker](https://github.com/findyourexit/carabiner/issues).
+The current `0.1.x` line is supported before the stable 1.0.0 release. The command-line interface, configuration file format, and programmatic API may change before 1.0.0. The current release is `0.1.6`. Start with [Getting Started](docs/getting-started/installation.md) and report defects through the [issue tracker](https://github.com/findyourexit/carabiner/issues).
 
 ## Platform Support
 
