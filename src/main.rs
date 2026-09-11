@@ -2402,6 +2402,7 @@ fn fetch_command(options: &FetchCli) -> Result<Value> {
         &features,
         selected_skills.as_deref(),
         options.reference.as_deref(),
+        options.token.as_deref(),
         options.path.as_deref(),
         &output,
         &options.conflict,
@@ -2664,6 +2665,62 @@ impl FetchOutcome {
     }
 }
 
+fn github_token(explicit: Option<&str>) -> Option<String> {
+    explicit
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            std::env::var("GITHUB_TOKEN")
+                .ok()
+                .filter(|value| !value.is_empty())
+        })
+        .or_else(|| {
+            std::env::var("GH_TOKEN")
+                .ok()
+                .filter(|value| !value.is_empty())
+        })
+}
+
+fn configure_github_git_auth(
+    command: &mut Command,
+    url: &str,
+    explicit_token: Option<&str>,
+) -> Result<()> {
+    let explicit_token = explicit_token.filter(|token| !token.is_empty());
+    let is_github_https = url.starts_with("https://github.com/");
+    if explicit_token.is_some() && !is_github_https {
+        return Err(anyhow!(
+            "--token is only supported for HTTPS GitHub sources; use your Git credential helper for other remotes."
+        ));
+    }
+    if !is_github_https {
+        return Ok(());
+    }
+    let Some(token) = github_token(explicit_token) else {
+        return Ok(());
+    };
+    let config_count = std::env::var("GIT_CONFIG_COUNT")
+        .ok()
+        .map(|value| value.parse::<usize>().context("Invalid GIT_CONFIG_COUNT"))
+        .transpose()?
+        .unwrap_or_default();
+    let next_count = config_count
+        .checked_add(1)
+        .ok_or_else(|| anyhow!("GIT_CONFIG_COUNT is too large"))?;
+    let header = format!(
+        "AUTHORIZATION: Basic {}",
+        STANDARD.encode(format!("x-access-token:{token}"))
+    );
+    command
+        .env("GIT_CONFIG_COUNT", next_count.to_string())
+        .env(
+            format!("GIT_CONFIG_KEY_{config_count}"),
+            "http.https://github.com/.extraheader",
+        )
+        .env(format!("GIT_CONFIG_VALUE_{config_count}"), header);
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn fetch_source_internal(
     source: &str,
@@ -2671,6 +2728,7 @@ fn fetch_source_internal(
     features: &[String],
     selected_skills: Option<&[String]>,
     reference: Option<&str>,
+    token: Option<&str>,
     subpath: Option<&str>,
     output: &Path,
     conflict: &str,
@@ -2714,6 +2772,7 @@ fn fetch_source_internal(
         if let Some(reference) = inferred_ref.as_deref() {
             command.arg("--branch").arg(reference);
         }
+        configure_github_git_auth(&mut command, &url, token)?;
         command.arg("--").arg(&url).arg(&temp);
         let status = command.status().context("failed to start git")?;
         if !status.success() {
@@ -3109,7 +3168,7 @@ fn sha256_bytes(content: &[u8]) -> String {
     format!("sha256-{:x}", Sha256::digest(content))
 }
 
-fn git_revision(source: &str, requested_ref: Option<&str>) -> String {
+fn git_revision(source: &str, requested_ref: Option<&str>, token: Option<&str>) -> Result<String> {
     let source_path = PathBuf::from(source);
     if source_path.is_dir() {
         if let Ok(output) = Command::new("git")
@@ -3119,7 +3178,7 @@ fn git_revision(source: &str, requested_ref: Option<&str>) -> String {
             if output.status.success() {
                 let revision = String::from_utf8_lossy(&output.stdout).trim().to_owned();
                 if revision.len() == 40 {
-                    return revision;
+                    return Ok(revision);
                 }
             }
         }
@@ -3131,6 +3190,7 @@ fn git_revision(source: &str, requested_ref: Option<&str>) -> String {
         } else {
             command.arg("HEAD");
         }
+        configure_github_git_auth(&mut command, &url, token)?;
         if let Ok(output) = command.output() {
             if output.status.success() {
                 if let Some(revision) = String::from_utf8_lossy(&output.stdout)
@@ -3139,13 +3199,13 @@ fn git_revision(source: &str, requested_ref: Option<&str>) -> String {
                     .and_then(|line| line.split_whitespace().next())
                 {
                     if revision.len() == 40 {
-                        return revision.to_owned();
+                        return Ok(revision.to_owned());
                     }
                 }
             }
         }
     }
-    "0".repeat(40)
+    Ok("0".repeat(40))
 }
 
 fn source_string_list(object: &Map<String, Value>, key: &str) -> Option<Vec<String>> {
@@ -3297,9 +3357,11 @@ fn source_lock_rules(curated: &Path, selected: Option<&[String]>) -> Result<Map<
     Ok(rules)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn source_lock_entry(
     source: &str,
     requested_ref: Option<&str>,
+    token: Option<&str>,
     selected_skills: Option<&[String]>,
     selected_rules: Option<&[String]>,
     rules_path: Option<&str>,
@@ -3329,7 +3391,7 @@ fn source_lock_entry(
     let mut entry = Map::from_iter([
         (
             "resolvedRef".into(),
-            Value::String(git_revision(source, requested_ref)),
+            Value::String(git_revision(source, requested_ref, token)?),
         ),
         (
             "resolvedAt".into(),
@@ -4200,6 +4262,7 @@ fn install_carabiner_sources(options: &InstallCli) -> Result<Value> {
                     &["skills".into()],
                     selected,
                     requested_ref,
+                    options.token.as_deref(),
                     object.get("path").and_then(Value::as_str),
                     &staging,
                     "overwrite",
@@ -4227,6 +4290,7 @@ fn install_carabiner_sources(options: &InstallCli) -> Result<Value> {
                     &["rules".into()],
                     None,
                     requested_ref,
+                    options.token.as_deref(),
                     rules_path,
                     &rules_staging,
                     "overwrite",
@@ -4245,6 +4309,7 @@ fn install_carabiner_sources(options: &InstallCli) -> Result<Value> {
                 source_lock_entry(
                     source,
                     requested_ref,
+                    options.token.as_deref(),
                     selected_skills.as_deref(),
                     rules_declared.as_deref(),
                     object.get("rulesPath").and_then(Value::as_str),
@@ -4620,12 +4685,14 @@ fn install_gh_command(options: &InstallCli) -> Result<Value> {
                 &["skills".into()],
                 selected_names,
                 resolved_requested_ref.or(lock_ref),
+                options.token.as_deref(),
                 None,
                 &staging,
                 "overwrite",
                 false,
             )?;
-            let resolved_commit = git_revision(source, resolved_requested_ref);
+            let resolved_commit =
+                git_revision(source, resolved_requested_ref, options.token.as_deref())?;
             let provenance_ref = resolved_requested_ref.unwrap_or(&resolved_commit);
             let mut output = Vec::new();
             for skill_dir in direct_dirs(&staging.join("skills")) {
@@ -4854,6 +4921,7 @@ fn apm_dependencies(value: &serde_yaml::Value) -> Result<Vec<ApmDependency>> {
 fn clone_apm_source(
     source: &str,
     requested_ref: Option<&str>,
+    token: Option<&str>,
 ) -> Result<(PathBuf, Option<PathBuf>, String)> {
     let local = PathBuf::from(source);
     if local.is_dir() {
@@ -4879,6 +4947,7 @@ fn clone_apm_source(
     if let Some(reference) = requested_ref {
         command.arg("--branch").arg(reference);
     }
+    configure_github_git_auth(&mut command, &url, token)?;
     command.arg("--").arg(&url).arg(&temp);
     let status = command.status().context("failed to start git")?;
     if !status.success() {
@@ -4998,10 +5067,13 @@ fn install_apm_manifest(options: &InstallCli) -> Result<Value> {
         }
         let result = (|| -> Result<(usize, serde_yaml::Value)> {
             let (root, temporary, canonical_url) =
-                clone_apm_source(source, requested_ref.as_deref())?;
+                clone_apm_source(source, requested_ref.as_deref(), options.token.as_deref())?;
             let _temporary_cleanup = TempDirGuard::new(temporary.clone());
-            let resolved_commit =
-                git_revision(root.to_string_lossy().as_ref(), requested_ref.as_deref());
+            let resolved_commit = git_revision(
+                root.to_string_lossy().as_ref(),
+                requested_ref.as_deref(),
+                options.token.as_deref(),
+            )?;
             let root = if let Some(path) = dependency_path {
                 safe_relative_path(path)?;
                 root.join(path)
@@ -6200,19 +6272,7 @@ fn docs_command(options: &DocsCli) -> Result<Value> {
 }
 
 fn github_releases(source: &str, token: Option<&str>) -> Result<Value> {
-    let token = token
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            std::env::var("GITHUB_TOKEN")
-                .ok()
-                .filter(|value| !value.is_empty())
-        })
-        .or_else(|| {
-            std::env::var("GH_TOKEN")
-                .ok()
-                .filter(|value| !value.is_empty())
-        });
+    let token = github_token(token);
     let source = source
         .trim()
         .trim_start_matches("https://github.com/")
@@ -8102,6 +8162,24 @@ mod tests {
             "https://registry.npmjs.org"
         )
         .is_err());
+    }
+
+    #[test]
+    fn explicit_npm_token_is_used_for_the_default_registry() {
+        let options = InstallCli {
+            token: Some("cli-token".into()),
+            ..InstallCli::default()
+        };
+        let source = json!({});
+        assert_eq!(
+            npm_token(
+                source.as_object().unwrap(),
+                &options,
+                "https://registry.npmjs.org"
+            )
+            .unwrap(),
+            Some("cli-token".into())
+        );
     }
 
     #[test]

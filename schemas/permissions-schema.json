@@ -12,7 +12,7 @@
     },
     "permission": {
       "type": "object",
-      "description": "Shared permission rules applied across all configured tools. Keys are permission categories such as 'bash', 'read', 'edit', 'write', 'webfetch', 'websearch', 'mcp', or '*'. Values map glob patterns to an action.",
+      "description": "Shared permission rules applied across all configured tools. Each category maps glob patterns to actions or uses one default action with no pattern restriction.",
       "additionalProperties": {
         "oneOf": [
           {
