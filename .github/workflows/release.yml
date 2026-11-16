@@ -24,7 +24,7 @@ env:
 jobs:
   validate:
     name: Validate release metadata
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -67,12 +67,12 @@ jobs:
             archive: tar.gz
             update_asset: carabiner-darwin-x64
           - target: x86_64-unknown-linux-gnu
-            runner: ubuntu-24.04
+            runner: ubuntu-26.04
             cross: false
             archive: tar.gz
             update_asset: carabiner-linux-x64
           - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-24.04
+            runner: ubuntu-26.04
             cross: true
             archive: tar.gz
             update_asset: carabiner-linux-arm64
@@ -167,7 +167,7 @@ jobs:
   release:
     name: Create GitHub Release
     needs: [validate, build]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: write
@@ -240,7 +240,7 @@ jobs:
   homebrew:
     name: Update Homebrew formula
     needs: release
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     environment: homebrew-tap
     permissions:
@@ -324,7 +324,7 @@ jobs:
   publish-crate:
     name: Publish to crates.io
     needs: [validate, build]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     environment: crates-io
     permissions:
